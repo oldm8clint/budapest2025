@@ -861,6 +861,8 @@ async function main() {
     priceHistory: { date: string; price: number }[];
     imageUrl: string; imageLargeUrl: string; isTeam: boolean;
     volume: number; listings: number; priceStrength: string; grade: string; gradeColor: string;
+    allTimeHigh: number; allTimeHighDate: string;
+    allTimeLow: number; allTimeLowDate: string;
   }
 
   const data: Row[] = [];
@@ -888,6 +890,15 @@ async function main() {
     const strength = getPriceStrength(vol);
     const { grade: invGrade, color: gradeColor } = getInvestmentGrade(parseFloat(roi), vol);
 
+    // Compute all-time high and low from price history
+    let allTimeHigh = price, allTimeHighDate = todayEntry.date;
+    let allTimeLow = price > 0 ? price : Infinity, allTimeLowDate = todayEntry.date;
+    for (const h of ph) {
+      if (h.price > allTimeHigh) { allTimeHigh = h.price; allTimeHighDate = h.date; }
+      if (h.price > 0 && h.price < allTimeLow) { allTimeLow = h.price; allTimeLowDate = h.date; }
+    }
+    if (allTimeLow === Infinity) { allTimeLow = 0; allTimeLowDate = '-'; }
+
     data.push({
       name: s.name, quality: s.quality, qty: s.qty, costPerUnit: 0.35,
       totalCost, currentPrice: price, totalValue, profitLoss: pl,
@@ -896,6 +907,7 @@ async function main() {
       imageLargeUrl: getImageUrl(imageCache, hashName, 256),
       isTeam: TEAM_NAMES.has(s.name),
       volume: vol, listings: list, priceStrength: strength, grade: invGrade, gradeColor,
+      allTimeHigh, allTimeHighDate, allTimeLow, allTimeLowDate,
     });
 
     grandQty += s.qty;
@@ -960,6 +972,14 @@ async function main() {
   const unprofitableCount = data.filter(r => r.currentPrice > 0 && r.currentPrice < 0.35).length;
   const bestPerformer = [...data].filter(r => r.currentPrice > 0).sort((a, b) => b.currentPrice - a.currentPrice)[0];
   const worstPerformer = [...data].filter(r => r.currentPrice > 0).sort((a, b) => a.currentPrice - b.currentPrice)[0];
+
+  // Portfolio all-time high/low
+  const portfolioATH = history.entries.length > 0 ? history.entries.reduce((best, e) => e.totalValue > best.totalValue ? e : best, history.entries[0]) : null;
+  const portfolioATL = history.entries.length > 0 ? history.entries.reduce((worst, e) => e.totalValue < worst.totalValue ? e : worst, history.entries[0]) : null;
+
+  // Per-sticker all-time records
+  const stickerATH = [...data].filter(r => r.allTimeHigh > 0).sort((a, b) => b.allTimeHigh - a.allTimeHigh)[0];
+  const stickerATL = [...data].filter(r => r.allTimeLow > 0).sort((a, b) => a.allTimeLow - b.allTimeLow)[0];
 
   // Time to ROI estimate (need 2+ snapshots)
   let roiEstimate = '';
@@ -2292,7 +2312,62 @@ ${sellWindows.map(sw => {
 </table>
 <p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Sell timing based on ${realisticProjections.length} majors (Katowice 2014 excluded as outlier). These are averages &mdash; individual stickers (especially Gold/Holo) may appreciate faster or slower than the portfolio average.</p>
 
+<h3 id="quick-stats-section">Quick Stats</h3>
+<div class="summary" style="margin-bottom:16px;">
+  <div class="card"><div class="card-label">Price Updates</div><div class="card-value neutral">${history.entries.length}</div><div class="card-sub">snapshots recorded</div></div>
+  <div class="card"><div class="card-label">Updates Per Day</div><div class="card-value dimmed">6x</div><div class="card-sub">every 4 hours</div></div>
+  <div class="card"><div class="card-label">Avg Sticker Price</div><div class="card-value ${avgStickerValue >= 0.35 ? 'positive' : 'negative'}">$${avgStickerValue.toFixed(3)}</div><div class="card-sub">need $0.35 to break even</div></div>
+  <div class="card"><div class="card-label">Gold Value</div><div class="card-value positive">$${(qualityTotals['Gold']?.value || 0).toFixed(2)}</div><div class="card-sub">${((qualityTotals['Gold']?.value || 0) / grandValue * 100).toFixed(1)}% of portfolio</div></div>
+  <div class="card"><div class="card-label">Holo Value</div><div class="card-value positive">$${(qualityTotals['Holo']?.value || 0).toFixed(2)}</div><div class="card-sub">${((qualityTotals['Holo']?.value || 0) / grandValue * 100).toFixed(1)}% of portfolio</div></div>
+  <div class="card"><div class="card-label">Normal Value</div><div class="card-value negative">$${(qualityTotals['Normal']?.value || 0).toFixed(2)}</div><div class="card-sub">${((qualityTotals['Normal']?.value || 0) / grandValue * 100).toFixed(1)}% of portfolio</div></div>
+  <div class="card"><div class="card-label">Most Valuable</div><div class="card-value" style="font-size:15px;color:#ffd700">${bestPerformer ? bestPerformer.name + ' ' + bestPerformer.quality : '-'}</div><div class="card-sub">${bestPerformer ? '$' + bestPerformer.currentPrice.toFixed(2) + ' (+' + ((bestPerformer.currentPrice / 0.35 - 1) * 100).toFixed(0) + '%)' : ''}</div></div>
+  <div class="card"><div class="card-label">Portfolio ATH</div><div class="card-value positive">${portfolioATH ? '$' + portfolioATH.totalValue.toFixed(2) : '-'}</div><div class="card-sub">${portfolioATH ? portfolioATH.date : ''}</div></div>
+  <div class="card"><div class="card-label">Portfolio ATL</div><div class="card-value negative">${portfolioATL ? '$' + portfolioATL.totalValue.toFixed(2) : '-'}</div><div class="card-sub">${portfolioATL ? portfolioATL.date : ''}</div></div>
+  <div class="card"><div class="card-label">Sticker ATH</div><div class="card-value" style="font-size:15px;color:#22c55e">${stickerATH ? stickerATH.name + ' ' + stickerATH.quality : '-'}</div><div class="card-sub">${stickerATH ? '$' + stickerATH.allTimeHigh.toFixed(2) + ' on ' + stickerATH.allTimeHighDate : ''}</div></div>
+  <div class="card"><div class="card-label">Sticker ATL</div><div class="card-value" style="font-size:15px;color:#ef4444">${stickerATL ? stickerATL.name + ' ' + stickerATL.quality : '-'}</div><div class="card-sub">${stickerATL ? '$' + stickerATL.allTimeLow.toFixed(2) + ' on ' + stickerATL.allTimeLowDate : ''}</div></div>
+  <div class="card"><div class="card-label">Page Views</div><div class="card-value dimmed" id="pageViewCount">-</div><div class="card-sub">since tracking started</div></div>
+</div>
+
+<h3 id="browse-section">Browse by Player / Team (${sortedGroups.length} entities)</h3>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">Click any player/team to expand quality variants. Sorted by total portfolio value.</p>
+<details open>
+<summary style="cursor:pointer;color:#ffd700;font-weight:600;font-size:14px;padding:8px 0;margin-bottom:12px;">Show/Hide Browse (${sortedGroups.length} players & teams)</summary>
+<div id="accordionContainer">
+${sortedGroups.map((g, gi) => {
+  const pl = g.totalValue - g.totalInvested;
+  const plCls = pl >= 0 ? 'positive' : 'negative';
+  return `<div class="accordion-group" data-group="${gi}">
+    <div class="accordion-header" onclick="toggleAccordion(${gi})">
+      ${g.imageUrl ? '<img src="' + g.imageUrl + '" loading="lazy">' : '<div style="width:36px;height:36px;background:#1a1a28;border-radius:6px"></div>'}
+      <span class="accordion-header-name">${g.name}</span>
+      <div class="accordion-header-stats">
+        <span>${g.rows.length} variant${g.rows.length !== 1 ? 's' : ''}</span>
+        <span>Invested: $${g.totalInvested.toFixed(2)}</span>
+        <span class="${plCls}">Value: $${g.totalValue.toFixed(2)}</span>
+        <span class="${plCls}">ROI: ${g.combinedROI}</span>
+      </div>
+      <span class="accordion-arrow">&#9654;</span>
+    </div>
+    <div class="accordion-body">
+      <table>
+      <thead><tr><th>Quality</th><th>Qty</th><th>Price</th><th>ATH</th><th>ATL</th><th>Value</th><th>P/L</th><th>ROI</th><th>Grade</th><th>Vol</th></tr></thead>
+      <tbody>
+      ${g.rows.map(r => {
+        const qc = r.quality.toLowerCase();
+        const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+        return '<tr><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td>' + r.qty + '</td><td>$' + r.currentPrice.toFixed(2) + '</td><td title="' + r.allTimeHighDate + '" style="color:#22c55e">$' + r.allTimeHigh.toFixed(2) + '</td><td title="' + r.allTimeLowDate + '" style="color:#ef4444">$' + r.allTimeLow.toFixed(2) + '</td><td>$' + r.totalValue.toFixed(2) + '</td><td class="' + (r.profitLoss >= 0 ? 'positive' : 'negative') + '">' + (r.profitLoss >= 0 ? '+' : '') + '$' + r.profitLoss.toFixed(2) + '</td><td class="' + (parseFloat(r.roi) >= 0 ? 'positive' : 'negative') + '">' + r.roi + '</td><td>' + gradeBadgeHtml(r.grade, r.gradeColor) + '</td><td>' + (r.volume > 0 ? r.volume.toLocaleString() : '-') + '</td></tr>';
+      }).join('\n')}
+      </tbody>
+      </table>
+    </div>
+  </div>`;
+}).join('\n')}
+</div>
+</details>
+
 <h3 id="inventory-section">Full Inventory (${data.length} line items)</h3>
+<details>
+<summary style="cursor:pointer;color:#ffd700;font-weight:600;font-size:14px;padding:8px 0;margin-bottom:12px;">Show/Hide Inventory Table & Grid (${data.length} items, ${grandQty} stickers)</summary>
 <div class="filter-bar">
   <input type="text" id="search" placeholder="Search sticker name..." oninput="filterTable()">
   <select id="qualFilter" onchange="filterTable()">
@@ -2337,8 +2412,10 @@ ${data.map((r, idx) => {
   <th onclick="sortTable(8)">Vol (24h)</th>
   <th onclick="sortTable(9)">Listings</th>
   <th onclick="sortTable(10)">Strength</th>
-  <th onclick="sortTable(11)">vs Buy</th>
-  <th onclick="sortTable(12)">Time to ROI</th>
+  <th onclick="sortTable(11)">ATH</th>
+  <th onclick="sortTable(12)">ATL</th>
+  <th onclick="sortTable(13)">vs Buy</th>
+  <th onclick="sortTable(14)">Time to ROI</th>
   <th>Link</th>
 </tr></thead>
 <tbody>
@@ -2366,6 +2443,8 @@ ${data.map((r, idx) => {
   <td>${r.volume > 0 ? r.volume.toLocaleString() : '<span style="color:#555">-</span>'}</td>
   <td>${r.listings > 0 ? r.listings.toLocaleString() : '<span style="color:#555">-</span>'}</td>
   <td>${strengthBarsHtml(r.priceStrength)}</td>
+  <td title="${r.allTimeHighDate}"><span style="color:#22c55e">$${r.allTimeHigh.toFixed(2)}</span></td>
+  <td title="${r.allTimeLowDate}"><span style="color:#ef4444">$${r.allTimeLow.toFixed(2)}</span></td>
   <td><span class="dist-badge ${distCls}">${dist}</span></td>
   <td><span class="roi-time ${timeCls}">${timeEst}</span></td>
   <td><a href="${r.marketUrl}" target="_blank">View</a></td>
@@ -2377,43 +2456,10 @@ ${data.map((r, idx) => {
   <td>$${grandValue.toFixed(2)}</td>
   <td class="${grandPL >= 0 ? 'positive' : 'negative'}">${grandPL >= 0 ? '+' : ''}$${grandPL.toFixed(2)}</td>
   <td class="${parseFloat(grandROI) >= 0 ? 'positive' : 'negative'}">${grandROI}%</td>
-  <td></td><td>${totalVolume24h.toLocaleString()}</td><td></td><td></td><td></td><td></td><td></td>
+  <td></td><td>${totalVolume24h.toLocaleString()}</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
 </tr></tfoot>
 </table>
-
-<h3 id="browse-section">Browse by Player / Team</h3>
-<p style="color:#888;font-size:13px;margin-bottom:16px;">Click to expand. Sorted by total portfolio value. Shows all quality variants per entity.</p>
-<div id="accordionContainer">
-${sortedGroups.map((g, gi) => {
-  const pl = g.totalValue - g.totalInvested;
-  const plCls = pl >= 0 ? 'positive' : 'negative';
-  return `<div class="accordion-group" data-group="${gi}">
-    <div class="accordion-header" onclick="toggleAccordion(${gi})">
-      ${g.imageUrl ? '<img src="' + g.imageUrl + '" loading="lazy">' : '<div style="width:36px;height:36px;background:#1a1a28;border-radius:6px"></div>'}
-      <span class="accordion-header-name">${g.name}</span>
-      <div class="accordion-header-stats">
-        <span>${g.rows.length} variant${g.rows.length !== 1 ? 's' : ''}</span>
-        <span>Invested: $${g.totalInvested.toFixed(2)}</span>
-        <span class="${plCls}">Value: $${g.totalValue.toFixed(2)}</span>
-        <span class="${plCls}">ROI: ${g.combinedROI}</span>
-      </div>
-      <span class="accordion-arrow">&#9654;</span>
-    </div>
-    <div class="accordion-body">
-      <table>
-      <thead><tr><th>Quality</th><th>Qty</th><th>Price</th><th>Value</th><th>P/L</th><th>ROI</th><th>Grade</th><th>Vol</th></tr></thead>
-      <tbody>
-      ${g.rows.map(r => {
-        const qc = r.quality.toLowerCase();
-        const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
-        return '<tr><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td>' + r.qty + '</td><td>$' + r.currentPrice.toFixed(2) + '</td><td>$' + r.totalValue.toFixed(2) + '</td><td class="' + (r.profitLoss >= 0 ? 'positive' : 'negative') + '">' + (r.profitLoss >= 0 ? '+' : '') + '$' + r.profitLoss.toFixed(2) + '</td><td class="' + (parseFloat(r.roi) >= 0 ? 'positive' : 'negative') + '">' + r.roi + '</td><td>' + gradeBadgeHtml(r.grade, r.gradeColor) + '</td><td>' + (r.volume > 0 ? r.volume.toLocaleString() : '-') + '</td></tr>';
-      }).join('\n')}
-      </tbody>
-      </table>
-    </div>
-  </div>`;
-}).join('\n')}
-</div>
+</details>
 
 <!-- Sticker Detail Modal -->
 <div class="modal-overlay" id="stickerModal">
@@ -2888,6 +2934,8 @@ const STICKER_DATA = ${JSON.stringify(data.map(r => ({
   listings: r.listings, strength: r.priceStrength, grade: r.grade, gradeColor: r.gradeColor,
   img: r.imageLargeUrl || r.imageUrl, url: r.marketUrl,
   history: r.priceHistory.map(h => ({ d: h.date, p: h.price })),
+  ath: r.allTimeHigh, athDate: r.allTimeHighDate,
+  atl: r.allTimeLow, atlDate: r.allTimeLowDate,
 })))};
 
 // ── Modal ──
@@ -2922,6 +2970,8 @@ function openModal(idx) {
     ['Total Value', '$' + d.value.toFixed(2)],
     ['P/L', (d.pl >= 0 ? '+' : '') + '$' + d.pl.toFixed(2)],
     ['ROI', d.roi],
+    ['All-Time High', '$' + d.ath.toFixed(2) + ' (' + d.athDate + ')'],
+    ['All-Time Low', '$' + d.atl.toFixed(2) + ' (' + d.atlDate + ')'],
     ['Grade', d.grade],
     ['Vol (24h)', d.volume > 0 ? d.volume.toLocaleString() : '-'],
     ['Listings', d.listings > 0 ? d.listings.toLocaleString() : '-'],
