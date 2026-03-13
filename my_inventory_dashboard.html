@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Inventory Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', Arial, sans-serif; background: #1b2838; color: #c6d4df; padding: 20px; }
+  .container { max-width: 1400px; margin: 0 auto; }
+
+  h1 { color: #fff; font-size: 32px; margin-bottom: 8px; }
+  .subtitle { color: #8f98a0; margin-bottom: 24px; }
+
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .card { background: rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.3); border-radius: 4px; padding: 16px; }
+  .card-label { color: #8f98a0; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; }
+  .card-value { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+  .card-sub { color: #8f98a0; font-size: 12px; }
+
+  .positive { color: #5ba32b; }
+  .negative { color: #c33c3c; }
+
+  h2 { color: #fff; font-size: 20px; margin: 32px 0 16px; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 12px; }
+  th { background: #1a3a52; color: #8f98a0; padding: 10px 8px; text-align: left; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #0e1a26; }
+  td { padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.2); }
+  tr:hover { background: rgba(103,193,245,0.03); }
+  a { color: #67c1f5; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .footer { text-align: center; color: #8f98a0; font-size: 12px; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(0,0,0,0.3); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>📦 My Inventory Tracker</h1>
+  <p class="subtitle">Tracking 3 items with price predictions | Updated 2026-03-13T13:02:08 UTC</p>
+
+  <div class="summary">
+    <div class="card">
+      <div class="card-label">Total Invested</div>
+      <div class="card-value">A$255</div>
+      <div class="card-sub">21 items</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Current Value</div>
+      <div class="card-value positive">A$602</div>
+      <div class="card-sub">market prices</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Profit/Loss</div>
+      <div class="card-value positive">A$+346</div>
+      <div class="card-sub">135.6% ROI</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Last Updated</div>
+      <div class="card-value">Today</div>
+      <div class="card-sub">2026-03-13T13:02:08 UTC</div>
+    </div>
+  </div>
+
+  <h2>Portfolio Details</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>Type</th>
+        <th>Qty</th>
+        <th>Buy Price</th>
+        <th>Current</th>
+        <th>Value</th>
+        <th>ROI</th>
+        <th>Trend</th>
+        <th>Predictions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+      <td><a href="https://steamcommunity.com/market/listings/730/Operation%20Breakout%20Weapon%20Case" target="_blank">Operation Breakout Case</a></td>
+      <td>Case</td>
+      <td>19</td>
+      <td>A$13.35</td>
+      <td>A$13.35</td>
+      <td class="positive">A$253.65</td>
+      <td class="positive">+0.0%</td>
+      <td>→ Insufficient data</td>
+      <td>30d: A$13.35<br>90d: A$13.35</td>
+    </tr><tr>
+      <td><a href="https://steamcommunity.com/market/listings/730/CS%3AGO%20Weapon%20Case" target="_blank">CS:GO Weapon Case</a></td>
+      <td>Case</td>
+      <td>1</td>
+      <td>A$1.50</td>
+      <td>A$318.03</td>
+      <td class="positive">A$318.03</td>
+      <td class="positive">+21102.0%</td>
+      <td>→ Insufficient data</td>
+      <td>30d: A$318.03<br>90d: A$318.03</td>
+    </tr><tr>
+      <td><a href="https://steamcommunity.com/market/listings/730/Glove%20Case" target="_blank">Glove Case</a></td>
+      <td>Case</td>
+      <td>1</td>
+      <td>A$0.25</td>
+      <td>A$29.99</td>
+      <td class="positive">A$29.99</td>
+      <td class="positive">+11896.0%</td>
+      <td>→ Insufficient data</td>
+      <td>30d: A$29.99<br>90d: A$29.99</td>
+    </tr>
+    </tbody>
+  </table>
+
+  <h2>How to Use</h2>
+  <div style="background: rgba(0,0,0,0.2); border-left: 3px solid #66c0f4; padding: 16px; margin-bottom: 24px; border-radius: 0 4px 4px 0;">
+    <p><strong>1. Create/Edit my_inventory.csv</strong> with your items (name, type, qty, purchase price, date)</p>
+    <p><strong>2. Run this tracker</strong> to fetch current prices and generate predictions</p>
+    <p><strong>3. Check trends</strong> to see if items are going up or down</p>
+    <p><strong>4. Use predictions</strong> to decide when to sell (30-day and 90-day forecasts)</p>
+  </div>
+
+  <div class="footer">
+    <p>Personal Inventory Tracker | Last updated 2026-03-13T13:02:08 UTC</p>
+  </div>
+</div>
+</body>
+</html>
