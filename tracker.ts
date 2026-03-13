@@ -1210,9 +1210,14 @@ async function main() {
   // Use historical data points (months vs weighted ROI) to project future values
   // Bias towards last 4 majors (most relevant for modern CS2 economy)
   const recentMajors = new Set(["Paris 2023", "Copenhagen 2024", "Shanghai 2024", "Austin 2025"]);
-  const KATOWICE_2014_WEIGHT = 0.1; // De-weight Katowice 2014 (outlier, not realistic for modern majors)
+  const KATOWICE_2014_WEIGHT = 0.03; // Heavy de-weight Katowice 2014 (extreme outlier, not realistic for modern majors)
   const RECENCY_BOOST = 3; // 3x weight for last 4 majors
-  const timePoints = [6, 12, 18, 24, 36, 48, 60, 78, 96, 120, 144];
+  // 2-week intervals for first year, monthly for year 2, then quarterly/yearly out to 12 years
+  const timePoints = [
+    0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12,
+    13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    27, 30, 33, 36, 42, 48, 54, 60, 72, 84, 96, 120, 144,
+  ];
   interface TimeProjection { months: number; label: string; avgROI: number; projectedValue: number; projectedPerSticker: number; actualValue?: number; actualROI?: number; }
   const timeProjections: TimeProjection[] = timePoints.map(targetMonths => {
     // Find majors near this age and interpolate
@@ -1235,7 +1240,7 @@ async function main() {
     const projValue = grandCost * (1 + avgROI / 100);
     return {
       months: targetMonths,
-      label: targetMonths < 12 ? `${targetMonths} months` : `${(targetMonths / 12).toFixed(1)} years`,
+      label: targetMonths < 1 ? `${Math.round(targetMonths * 30.44)} days` : targetMonths < 12 ? `${targetMonths} mo` : `${(targetMonths / 12).toFixed(1)} yr`,
       avgROI,
       projectedValue: projValue,
       projectedPerSticker: projValue / userTotal,
@@ -1403,18 +1408,30 @@ async function main() {
   // For each major, estimate peak appreciation period based on age and ROI
   interface SellWindow { label: string; months: number; avgROI: number; majorsInRange: string[]; recommendation: string; }
   const sellWindows: SellWindow[] = [
-    { label: '1-2 Years', months: 18, avgROI: 0, majorsInRange: [], recommendation: '' },
-    { label: '2-4 Years', months: 36, avgROI: 0, majorsInRange: [], recommendation: '' },
-    { label: '4-6 Years', months: 60, avgROI: 0, majorsInRange: [], recommendation: '' },
-    { label: '6-8 Years', months: 84, avgROI: 0, majorsInRange: [], recommendation: '' },
-    { label: '8-10 Years', months: 108, avgROI: 0, majorsInRange: [], recommendation: '' },
-    { label: '10+ Years', months: 132, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '2 Weeks', months: 0.5, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '1 Month', months: 1, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '3 Months', months: 3, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '6 Months', months: 6, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '1 Year', months: 12, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '1.5 Years', months: 18, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '2 Years', months: 24, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '3 Years', months: 36, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '5 Years', months: 60, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '7 Years', months: 84, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '10 Years', months: 120, avgROI: 0, majorsInRange: [], recommendation: '' },
   ];
   const realisticProjections = projections.filter(p => p.name !== 'Katowice 2014');
   for (const sw of sellWindows) {
-    const nearby = realisticProjections.filter(p => Math.abs(p.monthsOld - sw.months) <= 18);
+    const searchRadius = Math.max(6, sw.months * 0.5); // proportional search radius
+    const nearby = realisticProjections.filter(p => Math.abs(p.monthsOld - sw.months) <= searchRadius);
     if (nearby.length > 0) {
-      sw.avgROI = nearby.reduce((a, p) => a + p.roi, 0) / nearby.length;
+      let tw = 0, wr = 0;
+      for (const p of nearby) {
+        const w = 1 / (1 + Math.abs(p.monthsOld - sw.months));
+        wr += p.roi * w;
+        tw += w;
+      }
+      sw.avgROI = wr / tw;
       sw.majorsInRange = nearby.map(p => p.name);
     }
     if (sw.avgROI > 500) sw.recommendation = 'STRONG SELL';
@@ -2129,6 +2146,16 @@ ${(() => {
 </div>
 
 <h3 id="history-section">Snapshot History</h3>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px;">
+<div class="chart-container">
+  <h4 style="color:#fff;font-size:14px;margin-bottom:12px;">Value Change Per Snapshot</h4>
+  <canvas id="snapshotChangeChart"></canvas>
+</div>
+<div class="chart-container">
+  <h4 style="color:#fff;font-size:14px;margin-bottom:12px;">Cumulative P/L Over Time</h4>
+  <canvas id="cumulativePLChart"></canvas>
+</div>
+</div>
 <table class="history-table" style="max-width: 700px;">
 <thead><tr><th>Date</th><th>Portfolio Value</th><th>P/L vs Cost</th><th>ROI</th><th>Day Change</th></tr></thead>
 <tbody>
@@ -2215,8 +2242,21 @@ ${projections.map(p => {
   <div class="card"><div class="card-label">Conservative (avg all majors)</div><div class="card-value positive" style="font-size:20px">$${(projections.reduce((a,p) => a + p.portfolioValue, 0) / projections.length).toFixed(0)}</div><div class="card-sub">Average across ${projections.length} majors</div></div>
 </div>
 
-<table class="history-table" style="max-width: 700px;">
-<thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Actual Value</th><th>Actual ROI</th><th>Accuracy</th></tr></thead>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px;">
+<div class="chart-container">
+  <h4 style="color:#fff;font-size:14px;margin-bottom:12px;">Per-Quality Projected Value Over Time</h4>
+  <canvas id="qualityPredChart"></canvas>
+</div>
+<div class="chart-container">
+  <h4 style="color:#fff;font-size:14px;margin-bottom:12px;">ROI % by Timeline</h4>
+  <canvas id="roiTimelineChart"></canvas>
+</div>
+</div>
+
+<details style="margin-bottom:20px;">
+<summary style="cursor:pointer;color:#ffd700;font-weight:600;font-size:14px;padding:10px 0;">Show Full Prediction Table (${timeProjections.length} intervals)</summary>
+<table class="history-table" style="max-width: 900px;margin-top:12px;">
+<thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Per Sticker</th><th>Actual Value</th><th>Actual ROI</th><th>Accuracy</th></tr></thead>
 <tbody>
 ${timeProjections.map(t => {
   const pl = t.projectedValue - grandCost;
@@ -2226,15 +2266,37 @@ ${timeProjections.map(t => {
   return `<tr>
     <td style="font-weight:600">${t.label}</td>
     <td class="${t.projectedValue >= grandCost ? 'positive' : 'negative'}">$${t.projectedValue.toFixed(2)}</td>
-    <td class="${t.avgROI >= 0 ? 'positive' : 'negative'}">${t.avgROI >= 0 ? '+' : ''}${t.avgROI.toFixed(0)}%</td>
+    <td class="${t.avgROI >= 0 ? 'positive' : 'negative'}">${t.avgROI >= 0 ? '+' : ''}${t.avgROI.toFixed(1)}%</td>
+    <td style="color:#888">$${t.projectedPerSticker.toFixed(3)}</td>
     <td style="font-weight:600">${hasActual ? '<span class="' + (t.actualValue! >= grandCost ? 'positive' : 'negative') + '">$' + t.actualValue!.toFixed(2) + '</span>' : '<span style="color:#555">—</span>'}</td>
-    <td>${hasActual ? '<span class="' + (t.actualROI! >= 0 ? 'positive' : 'negative') + '">' + (t.actualROI! >= 0 ? '+' : '') + t.actualROI!.toFixed(0) + '%</span>' : '<span style="color:#555">—</span>'}</td>
+    <td>${hasActual ? '<span class="' + (t.actualROI! >= 0 ? 'positive' : 'negative') + '">' + (t.actualROI! >= 0 ? '+' : '') + t.actualROI!.toFixed(1) + '%</span>' : '<span style="color:#555">—</span>'}</td>
     <td>${hasActual ? '<span style="color:' + accColor + ';font-weight:600">' + accPct + '%</span>' : '<span style="color:#555">Pending</span>'}</td>
   </tr>`;
 }).join('\n')}
 </tbody>
 </table>
-<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Projections based on ${projections.length} previous CS majors (Katowice 2014 - Austin 2025). Weighted by your quality distribution. Pre-2019 majors lack Gold tier (marked N/A). Katowice 2014 is de-weighted (10%) as an unrealistic outlier for modern predictions. Past performance does not guarantee future results. Prices sampled March 2026.</p>
+</details>
+
+<h4 style="color:#fff;font-size:14px;margin:20px 0 12px;">Key Milestones</h4>
+<table class="history-table" style="max-width: 900px;">
+<thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Per Sticker</th><th>Actual Value</th><th>Accuracy</th></tr></thead>
+<tbody>
+${timeProjections.filter(t => [0.5, 1, 3, 6, 12, 18, 24, 36, 48, 60, 84, 120, 144].includes(t.months)).map(t => {
+  const hasActual = t.actualValue !== undefined;
+  const accPct = hasActual ? ((t.actualValue! / t.projectedValue) * 100).toFixed(0) : '';
+  const accColor = hasActual ? (t.actualValue! >= t.projectedValue ? '#22c55e' : t.actualValue! >= t.projectedValue * 0.8 ? '#f59e0b' : '#ef4444') : '';
+  return `<tr>
+    <td style="font-weight:600">${t.label}</td>
+    <td class="${t.projectedValue >= grandCost ? 'positive' : 'negative'}">$${t.projectedValue.toFixed(2)}</td>
+    <td class="${t.avgROI >= 0 ? 'positive' : 'negative'}">${t.avgROI >= 0 ? '+' : ''}${t.avgROI.toFixed(1)}%</td>
+    <td style="color:#888">$${t.projectedPerSticker.toFixed(3)}</td>
+    <td style="font-weight:600">${hasActual ? '<span class="' + (t.actualValue! >= grandCost ? 'positive' : 'negative') + '">$' + t.actualValue!.toFixed(2) + '</span>' : '<span style="color:#555">—</span>'}</td>
+    <td>${hasActual ? '<span style="color:' + accColor + ';font-weight:600">' + accPct + '%</span>' : '<span style="color:#555">Pending</span>'}</td>
+  </tr>`;
+}).join('\n')}
+</tbody>
+</table>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Projections based on ${projections.length} previous CS majors (Katowice 2014 - Austin 2025). Weighted by your quality distribution. Pre-2019 majors lack Gold tier (marked N/A). Katowice 2014 is heavily de-weighted (3%) as an unrealistic outlier for modern predictions. 2-week granularity for first year, monthly for year 2, quarterly/yearly beyond. Updated 6x daily. Past performance does not guarantee future results.</p>
 
 <h3>Sell Timing Recommendation</h3>
 <div class="sell-card">
@@ -2601,35 +2663,42 @@ if (trCtx) {
   });
 }
 
-// Prediction timeline chart
+// Prediction timeline chart — show every nth label to avoid crowding
+const predLabels = ['Now', ${timeProjections.map(t => "'" + t.label + "'").join(',')}];
+const predValues = [${grandValue.toFixed(2)}, ${timeProjections.map(t => t.projectedValue.toFixed(2)).join(',')}];
+const predActual = ${JSON.stringify(actualDataForChart)};
+const predBestCase = [${grandValue.toFixed(2)}, ${timeProjections.map((t) => {
+  const ratio = t.months / bestMajor.monthsOld;
+  return (grandCost * (1 + bestMajor.roi / 100 * ratio)).toFixed(2);
+}).join(',')}];
 const pCtx = document.getElementById('predictionChart').getContext('2d');
 new Chart(pCtx, {
   type: 'line',
   data: {
-    labels: ['Now', ${timeProjections.map(t => "'" + t.label + "'").join(',')}],
+    labels: predLabels,
     datasets: [
       {
         label: 'Projected Portfolio Value',
-        data: [${grandValue.toFixed(2)}, ${timeProjections.map(t => t.projectedValue.toFixed(2)).join(',')}],
+        data: predValues,
         borderColor: '#ffd700',
         backgroundColor: 'rgba(255,215,0,0.05)',
         fill: true,
         tension: 0.4,
         borderWidth: 2.5,
-        pointRadius: 5,
-        pointBackgroundColor: ${JSON.stringify(['#60a5fa', ...timeProjections.map(t => t.projectedValue >= grandCost ? '#22c55e' : '#ef4444')])},
+        pointRadius: predValues.map((v, i) => [0,1,5,12,24,36,48].includes(i) ? 5 : 1),
+        pointBackgroundColor: predValues.map((v, i) => v >= ${grandCost.toFixed(2)} ? '#22c55e' : '#ef4444'),
         pointBorderColor: '#fff',
         pointBorderWidth: 1,
       },
       {
         label: 'Actual Portfolio Value',
-        data: ${JSON.stringify(actualDataForChart)},
+        data: predActual,
         borderColor: '#60a5fa',
         backgroundColor: 'rgba(96,165,250,0.08)',
         fill: true,
         tension: 0.3,
         borderWidth: 2.5,
-        pointRadius: ${JSON.stringify(actualDataForChart.map(v => v !== null ? 6 : 0))},
+        pointRadius: predActual.map(v => v !== null ? 6 : 0),
         pointBackgroundColor: '#60a5fa',
         pointBorderColor: '#fff',
         pointBorderWidth: 2,
@@ -2637,7 +2706,7 @@ new Chart(pCtx, {
       },
       {
         label: 'Break-Even ($${grandCost.toFixed(0)})',
-        data: Array(${timeProjections.length + 1}).fill(${grandCost.toFixed(2)}),
+        data: Array(predLabels.length).fill(${grandCost.toFixed(2)}),
         borderColor: '#ef4444',
         borderDash: [5, 5],
         borderWidth: 1.5,
@@ -2646,10 +2715,7 @@ new Chart(pCtx, {
       },
       {
         label: 'Best Case (${bestMajor.name} path)',
-        data: [${grandValue.toFixed(2)}, ${timeProjections.map((t, i) => {
-          const ratio = t.months / bestMajor.monthsOld;
-          return (grandCost * (1 + bestMajor.roi / 100 * ratio)).toFixed(2);
-        }).join(',')}],
+        data: predBestCase,
         borderColor: 'rgba(34,197,94,0.4)',
         borderDash: [3, 3],
         borderWidth: 1,
@@ -2660,18 +2726,196 @@ new Chart(pCtx, {
   },
   options: {
     responsive: true,
+    interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { labels: { color: '#888', font: { family: 'Inter' } } },
-      tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y !== null ? '$' + c.parsed.y.toFixed(2) : 'No data') } },
+      tooltip: {
+        callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y !== null ? '$' + c.parsed.y.toFixed(2) : 'No data') },
+        backgroundColor: 'rgba(10,10,20,0.9)', borderColor: '#333', borderWidth: 1,
+      },
     },
     scales: {
-      x: { ticks: { color: '#666', font: { family: 'Inter' } }, grid: { color: '#111' } },
-      y: { ticks: { color: '#444', callback: v => '$' + v, font: { family: 'Inter' } }, grid: { color: '#111' },
-        suggestedMin: 0,
+      x: {
+        ticks: {
+          color: '#666', font: { family: 'Inter', size: 10 }, maxRotation: 45,
+          callback: function(val, idx) {
+            // Show fewer labels: Now, key milestones only
+            const keyIdxs = [0, 6, 12, 24, 30, 36, 40, 42, 45, 47, 48];
+            return keyIdxs.includes(idx) ? predLabels[idx] : '';
+          }
+        },
+        grid: { color: '#111' }
       },
+      y: { ticks: { color: '#444', callback: v => '$' + v, font: { family: 'Inter' } }, grid: { color: '#111' }, suggestedMin: 0 },
     }
   }
 });
+
+// Per-Quality Projected Value Chart
+{
+  const qualNames = ['Normal', 'Embroidered', 'Holo', 'Gold'];
+  const qualColors = { Normal: '#888', Embroidered: '#4ade80', Holo: '#a5b4fc', Gold: '#ffd700' };
+  const qualPredData = {};
+  for (const q of qualNames) {
+    const qStickers = ${JSON.stringify(stickers)}.filter(s => s.quality === q || (q === 'Normal' && s.quality.startsWith('Normal')));
+    const qQty = qStickers.reduce((a, s) => a + s.qty, 0);
+    const qCost = qQty * 0.35;
+    qualPredData[q] = predValues.map((v, i) => {
+      if (i === 0) {
+        const qCurrentVal = ${JSON.stringify(Object.fromEntries(
+          ['Normal', 'Embroidered', 'Holo', 'Gold'].map(q => {
+            const qData = data.filter(r => r.quality === q || (q === 'Normal' && r.quality.startsWith('Normal')));
+            return [q, qData.reduce((a, r) => a + r.totalValue, 0)];
+          })
+        ))}[q] || 0;
+        return qCurrentVal;
+      }
+      return qCost * (1 + ${JSON.stringify(timeProjections.map(t => t.avgROI))}[i-1] / 100);
+    });
+  }
+  const qpCtx = document.getElementById('qualityPredChart').getContext('2d');
+  new Chart(qpCtx, {
+    type: 'line',
+    data: {
+      labels: predLabels,
+      datasets: qualNames.map(q => ({
+        label: q,
+        data: qualPredData[q],
+        borderColor: qualColors[q],
+        backgroundColor: qualColors[q] + '10',
+        fill: false,
+        tension: 0.4,
+        borderWidth: 2,
+        pointRadius: 0,
+      })),
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#888', font: { family: 'Inter' } } },
+        tooltip: { callbacks: { label: (c) => c.dataset.label + ': $' + c.parsed.y.toFixed(2) }, backgroundColor: 'rgba(10,10,20,0.9)', borderColor: '#333', borderWidth: 1 },
+      },
+      scales: {
+        x: { ticks: { color: '#666', font: { size: 10 }, callback: function(val, idx) { const ki = [0,6,12,24,30,36,42,48]; return ki.includes(idx) ? predLabels[idx] : ''; } }, grid: { display: false } },
+        y: { ticks: { color: '#444', callback: v => '$' + v }, grid: { color: '#111' }, suggestedMin: 0 },
+      }
+    }
+  });
+}
+
+// ROI % Timeline Chart
+{
+  const roiCtx = document.getElementById('roiTimelineChart').getContext('2d');
+  const roiData = [${JSON.stringify(parseFloat(grandROI))}, ${timeProjections.map(t => +t.avgROI.toFixed(1)).join(',')}];
+  new Chart(roiCtx, {
+    type: 'bar',
+    data: {
+      labels: predLabels,
+      datasets: [{
+        label: 'Projected ROI %',
+        data: roiData,
+        backgroundColor: roiData.map(v => v >= 0 ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)'),
+        borderColor: roiData.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+        borderWidth: 1,
+        borderRadius: 3,
+      }],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => 'ROI: ' + (c.parsed.y >= 0 ? '+' : '') + c.parsed.y.toFixed(1) + '%' }, backgroundColor: 'rgba(10,10,20,0.9)', borderColor: '#333', borderWidth: 1 },
+      },
+      scales: {
+        x: { ticks: { color: '#666', font: { size: 10 }, callback: function(val, idx) { const ki = [0,6,12,24,30,36,42,48]; return ki.includes(idx) ? predLabels[idx] : ''; } }, grid: { display: false } },
+        y: { ticks: { color: '#444', callback: v => v + '%' }, grid: { color: '#111' } },
+      }
+    }
+  });
+}
+
+// ── Snapshot Change Chart ──
+{
+  const snapEntries = ${JSON.stringify([...history.entries].reverse().map(e => ({ date: e.date, value: e.totalValue, cost: e.totalCost })))};
+  if (snapEntries.length >= 2) {
+    const changes = [];
+    const changeDates = [];
+    for (let i = 0; i < snapEntries.length - 1; i++) {
+      changes.push(+(snapEntries[i].value - snapEntries[i+1].value).toFixed(2));
+      changeDates.push(snapEntries[i].date);
+    }
+    const scCtx = document.getElementById('snapshotChangeChart').getContext('2d');
+    new Chart(scCtx, {
+      type: 'bar',
+      data: {
+        labels: changeDates,
+        datasets: [{
+          label: 'Value Change ($)',
+          data: changes,
+          backgroundColor: changes.map(v => v >= 0 ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)'),
+          borderColor: changes.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+          borderWidth: 1,
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (c) => (c.parsed.y >= 0 ? '+' : '') + '$' + c.parsed.y.toFixed(2) }, backgroundColor: 'rgba(10,10,20,0.9)', borderColor: '#333', borderWidth: 1 },
+        },
+        scales: {
+          x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { display: false } },
+          y: { ticks: { color: '#444', callback: v => '$' + v }, grid: { color: '#111' } },
+        }
+      }
+    });
+  }
+  // Cumulative P/L Chart
+  const plCtx = document.getElementById('cumulativePLChart').getContext('2d');
+  const plDates = snapEntries.map(e => e.date).reverse();
+  const plValues = snapEntries.map(e => +(e.value - e.cost).toFixed(2)).reverse();
+  new Chart(plCtx, {
+    type: 'line',
+    data: {
+      labels: plDates,
+      datasets: [{
+        label: 'P/L ($)',
+        data: plValues,
+        borderColor: plValues[plValues.length-1] >= 0 ? '#22c55e' : '#ef4444',
+        backgroundColor: plValues[plValues.length-1] >= 0 ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+        fill: true,
+        tension: 0.3,
+        borderWidth: 2.5,
+        pointRadius: 4,
+        pointBackgroundColor: plValues.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+      },
+      {
+        label: 'Break-Even',
+        data: Array(plDates.length).fill(0),
+        borderColor: '#555',
+        borderDash: [5, 5],
+        borderWidth: 1,
+        pointRadius: 0,
+        fill: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#888' } },
+        tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y >= 0 ? '+' : '') + '$' + c.parsed.y.toFixed(2) }, backgroundColor: 'rgba(10,10,20,0.9)', borderColor: '#333', borderWidth: 1 },
+      },
+      scales: {
+        x: { ticks: { color: '#666', font: { size: 10 }, maxRotation: 45 }, grid: { display: false } },
+        y: { ticks: { color: '#444', callback: v => '$' + v }, grid: { color: '#111' } },
+      }
+    }
+  });
+}
 
 // ── Sticker data for modal ──
 const STICKER_DATA = ${JSON.stringify(data.map(r => ({

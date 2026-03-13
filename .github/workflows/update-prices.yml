@@ -2,9 +2,12 @@ name: Update Sticker Prices
 
 on:
   schedule:
-    - cron: '0 2 * * *'   # 12:00 PM AEST
-    - cron: '0 10 * * *'  # 8:00 PM AEST
-    - cron: '0 18 * * *'  # 4:00 AM AEST
+    - cron: '0 0 * * *'   # 10:00 AM AEST
+    - cron: '0 4 * * *'   # 2:00 PM AEST
+    - cron: '0 8 * * *'   # 6:00 PM AEST
+    - cron: '0 12 * * *'  # 10:00 PM AEST
+    - cron: '0 16 * * *'  # 2:00 AM AEST
+    - cron: '0 20 * * *'  # 6:00 AM AEST
   workflow_dispatch: # Manual trigger
 
 permissions:
