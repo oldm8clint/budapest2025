@@ -1,19 +1,77 @@
-// Budapest 2025 Sticker Price Tracker
+// CS2 Sticker Investment Tracker
 // Fetches fresh prices, saves history, builds HTML with trends
 // Runs via GitHub Actions daily — deploys to GitHub Pages
 
 const SCRIPT_DIR = import.meta.dir;
 const HISTORY_FILE = `${SCRIPT_DIR}/sticker_price_history.json`;
+const MAJOR_HISTORY_FILE = `${SCRIPT_DIR}/major_price_history.json`;
 const HTML_FILE = `${SCRIPT_DIR}/index.html`;
 const CSV_FILE = `${SCRIPT_DIR}/budapest2025_stickers.csv`;
 const IMAGES_FILE = `${SCRIPT_DIR}/sticker_images.json`;
+const CONFIG_FILE = `${SCRIPT_DIR}/config.json`;
+const STICKERS_FILE = `${SCRIPT_DIR}/stickers.json`;
 const DELAY_MS = 1800;
-const CURRENCY_AUD = 21;
+
+// ── Config ──────────────────────────────────────────────────────────
+interface TrackerConfig {
+  event: string;
+  eventReleaseDate: string;
+  costPerUnit: number;
+  currency: string;
+  currencyCode: number;
+  currencySymbol: string;
+  capsules: { qty: number; costEach: number };
+  steamProfile: { vanityUrl: string; displayName: string; avatarUrl: string };
+  discord: { enabled: boolean; webhooks: Record<string, string> };
+  siteTitle: string;
+  githubPagesUrl: string;
+}
+
+const DEFAULT_CONFIG: TrackerConfig = {
+  event: "Budapest 2025",
+  eventReleaseDate: "2025-09-15",
+  costPerUnit: 0.35,
+  currency: "AUD",
+  currencyCode: 21,
+  currencySymbol: "$",
+  capsules: { qty: 60, costEach: 0.39 },
+  steamProfile: { vanityUrl: "oldm8clint", displayName: "clint", avatarUrl: "https://avatars.akamai.steamstatic.com/596b07e4b11e4821c9a695accd501f7180bc5f99_full.jpg" },
+  discord: { enabled: true, webhooks: {} },
+  siteTitle: "Budapest 2025 Sticker Investment Tracker",
+  githubPagesUrl: "",
+};
+
+async function loadConfig(): Promise<TrackerConfig> {
+  try {
+    const file = Bun.file(CONFIG_FILE);
+    if (await file.exists()) {
+      const raw = await file.json();
+      return { ...DEFAULT_CONFIG, ...raw, steamProfile: { ...DEFAULT_CONFIG.steamProfile, ...raw.steamProfile }, discord: { ...DEFAULT_CONFIG.discord, ...raw.discord, webhooks: { ...DEFAULT_CONFIG.discord.webhooks, ...raw.discord?.webhooks } }, capsules: { ...DEFAULT_CONFIG.capsules, ...raw.capsules } };
+    }
+  } catch (e) { console.log(`Warning: Could not load config.json, using defaults: ${e}`); }
+  return DEFAULT_CONFIG;
+}
+
+async function loadStickersFromFile(): Promise<StickerEntry[] | null> {
+  try {
+    const file = Bun.file(STICKERS_FILE);
+    if (await file.exists()) {
+      const raw = await file.json();
+      if (raw.stickers && Array.isArray(raw.stickers)) {
+        console.log(`Loaded ${raw.stickers.length} sticker types (${raw.totalQty} total) from stickers.json`);
+        return raw.stickers;
+      }
+    }
+  } catch (e) { console.log(`Warning: Could not load stickers.json: ${e}`); }
+  return null;
+}
+
+const config = await loadConfig();
 
 // ── Sticker inventory ──────────────────────────────────────────────
 interface StickerEntry { name: string; quality: string; qty: number; }
 
-const stickers: StickerEntry[] = [
+const DEFAULT_STICKERS: StickerEntry[] = [
   { name: "910", quality: "Embroidered", qty: 2 },
   { name: "910", quality: "Normal", qty: 14 },
   { name: "Aleksib", quality: "Embroidered", qty: 3 },
@@ -398,14 +456,14 @@ const stickers: StickerEntry[] = [
 // ── Helpers ─────────────────────────────────────────────────────────
 function getMarketHashName(name: string, quality: string): string {
   if (quality === 'Capsule') {
-    return `Budapest 2025 ${name} Sticker Capsule`;
+    return `${config.event} ${name} Sticker Capsule`;
   }
   const q: Record<string, string> = {
     "Normal": "", "Embroidered": " (Embroidered)", "Gold": " (Gold)", "Holo": " (Holo)",
     "Normal (Champion)": " (Champion)", "Embroidered (Champion)": " (Embroidered, Champion)",
     "Holo (Champion)": " (Holo, Champion)",
   };
-  return `Sticker | ${name}${q[quality] || ""} | Budapest 2025`;
+  return `Sticker | ${name}${q[quality] || ""} | ${config.event}`;
 }
 
 function getSlabMarketHashName(name: string, quality: string): string {
@@ -415,7 +473,7 @@ function getSlabMarketHashName(name: string, quality: string): string {
     "Normal (Champion)": " (Champion)", "Embroidered (Champion)": " (Embroidered, Champion)",
     "Holo (Champion)": " (Holo, Champion)",
   };
-  return `Sticker Slab | ${name}${q[quality] || ""} | Budapest 2025`;
+  return `Sticker Slab | ${name}${q[quality] || ""} | ${config.event}`;
 }
 
 function getMarketUrl(hashName: string): string {
@@ -534,7 +592,7 @@ async function fetchStickerImages(): Promise<StickerImageCache> {
   let totalCount = Infinity;
 
   while (start < totalCount) {
-    const url = `https://steamcommunity.com/market/search/render/?query=Sticker+Budapest+2025&appid=730&start=${start}&count=${PAGE_SIZE}&norender=1`;
+    const url = `https://steamcommunity.com/market/search/render/?query=${encodeURIComponent('Sticker ' + config.event)}&appid=730&start=${start}&count=${PAGE_SIZE}&norender=1`;
     try {
       const res = await fetch(url);
       if (res.status === 429) {
@@ -575,10 +633,12 @@ function getImageUrl(imageCache: StickerImageCache, hashName: string, size: numb
 }
 
 // ── Iconic stickers (one per major for the comparison table) ─────────
-const ICONIC_STICKERS: Record<string, { hashName: string; label: string }> = {
-  "Katowice 2014": { hashName: "Sticker | iBUYPOWER (Holo) | Katowice 2014", label: "iBUYPOWER Holo" },
-  "Cologne 2014": { hashName: "Sticker | Virtus.Pro (Holo) | Cologne 2014", label: "VP Holo" },
-  "Katowice 2015": { hashName: "Sticker | Virtus.Pro (Foil) | Katowice 2015", label: "VP Foil" },
+// Iconic sticker images — hardcoded CDN hashes (these NEVER change)
+// Format: https://community.akamai.steamstatic.com/economy/image/{hash}/{size}fx{size}f
+const ICONIC_STICKERS: Record<string, { hashName: string; label: string; iconHash?: string }> = {
+  "Katowice 2014": { hashName: "Sticker | iBUYPOWER (Holo) | Katowice 2014", label: "iBUYPOWER Holo", iconHash: "fWFc82js0fmoRAP-qOIPu5THSWqfSmTELLqcUywGkijVjZULUrsm1j-9xgEDbQgOSTdRiiUWHFzDAfP_IAfbh_sQg551UGcyIlB7dF2pYjY-3YdlAcBaXqQF-1u1MVFBN7VOW0Hu2vk9e9QXNj7" },
+  "Cologne 2014": { hashName: "Sticker | Virtus.Pro (Holo) | Cologne 2014", label: "VP Holo", iconHash: "fWFc82js0fmoRAP-qOIPu5THSWqfSmTELLqcUywGkijVjZULUrsm1j-9xgEIbQdKTDpXjCEeKBzDAfP_IAfbh_sQg551UGcyIlB7dF69YWIM1IRiCcIKD_VS_Fi2MVdBMeRLHh3u2_l6LNNUcdqEjDY5fvU" },
+  "Katowice 2015": { hashName: "Sticker | Virtus.Pro (Foil) | Katowice 2015", label: "VP Foil", iconHash: "fWFc82js0fmoRAP-qOIPu5THSWqfSmTELLqcUywGkijVjZULUrsm1j-9xgEDbQgOSTdRiiUWHFzDAfP_IAfbh_sQg551RmNxJ1xF6eV-oZTdq0NNiApNdC_QCplu1MVZDIuRMXx3t2vh4e9FUdrqEiDtpLK0" },
   "Cologne 2015": { hashName: "Sticker | Ninjas in Pyjamas (Foil) | Cologne 2015", label: "NiP Foil" },
   "Cluj-Napoca 2015": { hashName: "Sticker | Luminosity Gaming (Foil) | Cluj-Napoca 2015", label: "LG Foil" },
   "Columbus 2016": { hashName: "Sticker | FaZe Clan (Holo) | MLG Columbus 2016", label: "FaZe Holo" },
@@ -600,8 +660,31 @@ const ICONIC_STICKERS: Record<string, { hashName: string; label: string }> = {
 
 async function fetchIconicImages(cache: StickerImageCache): Promise<StickerImageCache> {
   let changed = false;
-  for (const [major, info] of Object.entries(ICONIC_STICKERS)) {
-    if (cache[info.hashName]) continue;
+
+  // First: apply any hardcoded icon hashes (instant, no API calls)
+  for (const [_, info] of Object.entries(ICONIC_STICKERS)) {
+    if (!cache[info.hashName] && info.iconHash) {
+      cache[info.hashName] = info.iconHash;
+      changed = true;
+    }
+  }
+
+  // Check what's still missing after hardcoded hashes
+  const missing = Object.entries(ICONIC_STICKERS).filter(([_, info]) => !cache[info.hashName]);
+  if (missing.length === 0) {
+    if (changed) {
+      await Bun.write(IMAGES_FILE, JSON.stringify(cache, null, 2));
+      console.log(`  Cached ${Object.keys(ICONIC_STICKERS).length} iconic images (hardcoded hashes).`);
+    } else {
+      console.log(`  All iconic images already cached.`);
+    }
+    return cache;
+  }
+
+  // Only fetch a few missing ones per run to avoid burning rate limit
+  const toFetch = missing.slice(0, 3);
+  console.log(`  ${missing.length} iconic images still need fetching (doing ${toFetch.length} this run)...`);
+  for (const [major, info] of toFetch) {
     console.log(`  Fetching iconic image for ${major}: ${info.label}...`);
     const url = `https://steamcommunity.com/market/search/render/?query=${encodeURIComponent(info.hashName)}&appid=730&start=0&count=1&norender=1`;
     try {
@@ -619,19 +702,20 @@ async function fetchIconicImages(cache: StickerImageCache): Promise<StickerImage
   }
   if (changed) {
     await Bun.write(IMAGES_FILE, JSON.stringify(cache, null, 2));
-    console.log(`  Updated image cache with iconic sticker images`);
+    console.log(`  Updated image cache (${Object.keys(cache).length} total entries).`);
   }
   return cache;
 }
 
 // ── Discord Webhooks ────────────────────────────────────────────────
-const DISCORD_WEBHOOK_DEFAULT = 'https://discord.com/api/webhooks/1481846126679429201/8qvK6c3cjVdE2XJv7FJk-OtxoizFU2QEz3XUw540U7qjAGMYHREU8Qoa8SODF25DExrb';
 const DISCORD_WEBHOOKS = {
-  alerts: process.env.DISCORD_ALERTS || DISCORD_WEBHOOK_DEFAULT,
-  portfolio: process.env.DISCORD_PORTFOLIO || DISCORD_WEBHOOK_DEFAULT,
-  milestones: process.env.DISCORD_MILESTONES || DISCORD_WEBHOOK_DEFAULT,
-  signals: process.env.DISCORD_SIGNALS || DISCORD_WEBHOOK_DEFAULT,
-  weekly: process.env.DISCORD_WEEKLY || DISCORD_WEBHOOK_DEFAULT,
+  alerts: process.env.DISCORD_ALERTS || config.discord.webhooks.alerts || '',
+  portfolio: process.env.DISCORD_PORTFOLIO || config.discord.webhooks.portfolio || '',
+  milestones: process.env.DISCORD_MILESTONES || config.discord.webhooks.milestones || '',
+  signals: process.env.DISCORD_SIGNALS || config.discord.webhooks.signals || '',
+  weekly: process.env.DISCORD_WEEKLY || config.discord.webhooks.weekly || '',
+  skinport: process.env.DISCORD_SKINPORT || config.discord.webhooks.skinport || '',
+  majorTracking: process.env.DISCORD_MAJORS || config.discord.webhooks.majorTracking || '',
 };
 
 function discordTimestamp(): string {
@@ -639,7 +723,7 @@ function discordTimestamp(): string {
 }
 
 function discordFooter() {
-  return { text: `Budapest 2025 Tracker \u2022 ${discordTimestamp()}` };
+  return { text: `${config.event} Tracker \u2022 ${discordTimestamp()}` };
 }
 
 async function sendDiscord(webhookUrl: string, embeds: object[]): Promise<void> {
@@ -662,7 +746,7 @@ interface PriceResult { price: number; volume: number; }
 async function fetchPrice(hashName: string, retries = 2): Promise<PriceResult> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const url = `https://steamcommunity.com/market/priceoverview/?appid=730&currency=${CURRENCY_AUD}&market_hash_name=${encodeURIComponent(hashName)}`;
+      const url = `https://steamcommunity.com/market/priceoverview/?appid=730&currency=${config.currencyCode}&market_hash_name=${encodeURIComponent(hashName)}`;
       const res = await fetch(url);
       if (res.status === 429) {
         console.log(`  Rate limited, waiting 15s...`);
@@ -689,15 +773,13 @@ async function fetchPrice(hashName: string, retries = 2): Promise<PriceResult> {
 }
 
 // Fetch sell_listings count from Steam search/render API
+// Fetch sell_listings count from Steam search/render API
 async function fetchListings(hashNames: string[]): Promise<Record<string, number>> {
   const listings: Record<string, number> = {};
-  // Steam search API returns listings for multiple items at once
-  // We'll batch by 100 items per request using the search endpoint
   const batchSize = 100;
   for (let i = 0; i < hashNames.length; i += batchSize) {
-    const batch = hashNames.slice(i, i + batchSize);
     try {
-      const searchUrl = `https://steamcommunity.com/market/search/render/?appid=730&norender=1&count=${batchSize}&start=0&search_descriptions=0&sort_column=name&sort_dir=asc&category_730_Type%5B%5D=tag_CSGO_Tool_Sticker&q=Budapest+2025`;
+      const searchUrl = `https://steamcommunity.com/market/search/render/?appid=730&norender=1&count=${batchSize}&start=0&search_descriptions=0&sort_column=name&sort_dir=asc&category_730_Type%5B%5D=tag_CSGO_Tool_Sticker&q=${encodeURIComponent(config.event)}`;
       const res = await fetch(searchUrl);
       if (res.ok) {
         const data = await res.json() as any;
@@ -715,6 +797,180 @@ async function fetchListings(hashNames: string[]): Promise<Record<string, number
     }
   }
   return listings;
+}
+
+// ── Skinport API — third-party sales data (no auth needed) ──
+// Note: Skinport prices are ~15% lower than Steam (no seller fee)
+// We use this for VOLUME data only, not prices
+interface SkinportItem {
+  market_hash_name: string;
+  quantity: number; // listings on Skinport
+  min_price: number;
+  suggested_price: number;
+}
+interface SkinportSalesData {
+  market_hash_name: string;
+  last_24_hours: { volume: number };
+  last_7_days: { volume: number; avg: number | null };
+  last_30_days: { volume: number; avg: number | null };
+  last_90_days: { volume: number; avg: number | null };
+}
+
+async function fetchSkinportListings(): Promise<Record<string, { listings: number; minPrice: number; suggestedPrice: number }>> {
+  const result: Record<string, { listings: number; minPrice: number; suggestedPrice: number }> = {};
+  try {
+    const res = await fetch('https://api.skinport.com/v1/items?app_id=730&currency=USD&tradable=0', {
+      headers: { 'Accept-Encoding': 'br, gzip, deflate' },
+    });
+    if (!res.ok) { console.log(`  Skinport items API returned ${res.status}`); return result; }
+    const items = await res.json() as SkinportItem[];
+    for (const item of items) {
+      if (item.market_hash_name.includes(config.event)) {
+        result[item.market_hash_name] = { listings: item.quantity, minPrice: item.min_price || 0, suggestedPrice: item.suggested_price || 0 };
+      }
+    }
+    console.log(`  Skinport: ${Object.keys(result).length} ${config.event} items with listing counts + prices`);
+  } catch (e) { console.log(`  Skinport items fetch failed: ${e}`); }
+  return result;
+}
+
+async function fetchSkinportSales(): Promise<Record<string, { vol24h: number; vol7d: number; vol30d: number; vol90d: number }>> {
+  const result: Record<string, { vol24h: number; vol7d: number; vol30d: number; vol90d: number }> = {};
+  try {
+    const res = await fetch('https://api.skinport.com/v1/sales/history?app_id=730&currency=USD', {
+      headers: { 'Accept-Encoding': 'br, gzip, deflate' },
+    });
+    if (!res.ok) { console.log(`  Skinport sales API returned ${res.status}`); return result; }
+    const items = await res.json() as SkinportSalesData[];
+    for (const item of items) {
+      if (item.market_hash_name.includes(config.event)) {
+        result[item.market_hash_name] = {
+          vol24h: item.last_24_hours?.volume || 0,
+          vol7d: item.last_7_days?.volume || 0,
+          vol30d: item.last_30_days?.volume || 0,
+          vol90d: item.last_90_days?.volume || 0,
+        };
+      }
+    }
+    console.log(`  Skinport: ${Object.keys(result).length} ${config.event} items with sales history`);
+  } catch (e) { console.log(`  Skinport sales fetch failed: ${e}`); }
+  return result;
+}
+
+// ── Exchange rates ────────────────────────────────────────────────
+// Skinport returns prices in USD, Steam prices are fetched in AUD
+// We also show crypto rates for portfolio value reference
+let USD_TO_AUD = 1.55; // Fallback rate if API fails
+interface ExchangeRates {
+  usdToAud: number;
+  audToUsd: number;
+  audToEur: number;
+  audToGbp: number;
+  btcUsd: number;
+  ethUsd: number;
+  solUsd: number;
+  lastUpdated: string;
+}
+let exchangeRates: ExchangeRates = { usdToAud: 1.55, audToUsd: 0.645, audToEur: 0.58, audToGbp: 0.50, btcUsd: 0, ethUsd: 0, solUsd: 0, lastUpdated: '' };
+
+async function fetchExchangeRates(): Promise<ExchangeRates> {
+  const rates: ExchangeRates = { ...exchangeRates };
+  // Fiat rates
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/AUD');
+    if (res.ok) {
+      const data = await res.json() as any;
+      if (data?.rates) {
+        rates.audToUsd = data.rates.USD || 0.645;
+        rates.usdToAud = 1 / rates.audToUsd;
+        rates.audToEur = data.rates.EUR || 0.58;
+        rates.audToGbp = data.rates.GBP || 0.50;
+        rates.lastUpdated = new Date().toISOString().slice(0, 16);
+        console.log(`  Exchange rates: 1 AUD = $${rates.audToUsd.toFixed(4)} USD / €${rates.audToEur.toFixed(4)} EUR / £${rates.audToGbp.toFixed(4)} GBP`);
+      }
+    }
+  } catch { console.log('  Fiat exchange rate fetch failed, using fallback'); }
+  // Crypto rates
+  try {
+    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd');
+    if (res.ok) {
+      const data = await res.json() as any;
+      rates.btcUsd = data?.bitcoin?.usd || 0;
+      rates.ethUsd = data?.ethereum?.usd || 0;
+      rates.solUsd = data?.solana?.usd || 0;
+      if (rates.btcUsd) console.log(`  Crypto: BTC=$${rates.btcUsd.toLocaleString()} | ETH=$${rates.ethUsd.toLocaleString()} | SOL=$${rates.solUsd.toLocaleString()}`);
+    }
+  } catch { console.log('  Crypto price fetch failed'); }
+  return rates;
+}
+
+// ── Alternative investment comparison (Gold, Silver, BTC, ETH, SOL) ──
+interface AltInvestment {
+  name: string;
+  symbol: string;
+  color: string;
+  purchasePrice: number; // USD at purchase date
+  currentPrice: number; // USD now
+  roi: number; // percentage
+  investedValue: number; // What $X AUD would be worth today in this asset
+}
+
+async function fetchGoldSilverPrices(): Promise<{ goldUsd: number; silverUsd: number }> {
+  try {
+    // Use metals.dev free API
+    const res = await fetch('https://api.metals.dev/v1/latest?api_key=demo&currency=USD&unit=toz');
+    if (res.ok) {
+      const data = await res.json() as any;
+      const gold = data?.metals?.gold || 0;
+      const silver = data?.metals?.silver || 0;
+      if (gold) console.log(`  Metals: Gold=$${gold.toFixed(2)}/oz | Silver=$${silver.toFixed(2)}/oz`);
+      return { goldUsd: gold, silverUsd: silver };
+    }
+  } catch {}
+  // Fallback: try goldapi.io free tier
+  try {
+    const res = await fetch('https://www.goldapi.io/api/XAU/USD', {
+      headers: { 'x-access-token': 'goldapi-demo' },
+    });
+    if (res.ok) {
+      const data = await res.json() as any;
+      return { goldUsd: data?.price || 2300, silverUsd: data?.price ? data.price / 80 : 28 };
+    }
+  } catch {}
+  console.log('  Gold/silver API failed, using fallback prices');
+  return { goldUsd: 2300, silverUsd: 28 };
+}
+
+// Historical crypto prices from CoinGecko
+async function fetchHistoricalCrypto(date: string): Promise<{ btc: number; eth: number; sol: number }> {
+  const [y, m, d] = date.split('-');
+  const cgDate = `${d}-${m}-${y}`; // CoinGecko format: dd-mm-yyyy
+  const result = { btc: 0, eth: 0, sol: 0 };
+  try {
+    const res = await fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/history?date=${cgDate}`);
+    if (res.ok) {
+      const data = await res.json() as any;
+      result.btc = data?.market_data?.current_price?.usd || 0;
+    }
+  } catch {}
+  await new Promise(r => setTimeout(r, 1200)); // rate limit
+  try {
+    const res = await fetch(`https://api.coingecko.com/api/v3/coins/ethereum/history?date=${cgDate}`);
+    if (res.ok) {
+      const data = await res.json() as any;
+      result.eth = data?.market_data?.current_price?.usd || 0;
+    }
+  } catch {}
+  await new Promise(r => setTimeout(r, 1200));
+  try {
+    const res = await fetch(`https://api.coingecko.com/api/v3/coins/solana/history?date=${cgDate}`);
+    if (res.ok) {
+      const data = await res.json() as any;
+      result.sol = data?.market_data?.current_price?.usd || 0;
+    }
+  } catch {}
+  console.log(`  Historical crypto (${date}): BTC=$${result.btc.toFixed(0)} ETH=$${result.eth.toFixed(2)} SOL=$${result.sol.toFixed(2)}`);
+  return result;
 }
 
 function getPriceStrength(volume: number): string {
@@ -751,6 +1007,11 @@ async function main() {
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}`;
   const todayFull = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} UTC`;
+
+  // Load stickers: prefer stickers.json, fall back to hardcoded DEFAULT_STICKERS
+  const importedStickers = await loadStickersFromFile();
+  const stickers: StickerEntry[] = importedStickers || DEFAULT_STICKERS;
+
   const history = await loadHistory();
   let imageCache = await fetchStickerImages();
   imageCache = await fetchIconicImages(imageCache);
@@ -816,7 +1077,7 @@ async function main() {
 
     // Calculate totals
     let totalValue = 0;
-    const totalCost = stickers.reduce((a, s) => a + s.qty * 0.35, 0);
+    const totalCost = stickers.reduce((a, s) => a + s.qty * config.costPerUnit, 0);
     for (const s of stickers) {
       totalValue += s.qty * (prices[stickerKey(s.name, s.quality)] || 0);
     }
@@ -853,6 +1114,14 @@ async function main() {
   const currentVolumes = todayEntry.volumes || {};
   const currentListings = todayEntry.listings || {};
 
+  // ── Fetch exchange rates + Skinport third-party data ──
+  console.log('\nFetching exchange rates (fiat + crypto)...');
+  exchangeRates = await fetchExchangeRates();
+  USD_TO_AUD = exchangeRates.usdToAud;
+  console.log('Fetching Skinport third-party sales data...');
+  const skinportListings = await fetchSkinportListings();
+  const skinportSales = await fetchSkinportSales();
+
   // ── Build data rows ───────────────────────────────────────────────
   interface Row {
     name: string; quality: string; qty: number; costPerUnit: number;
@@ -863,6 +1132,13 @@ async function main() {
     volume: number; listings: number; priceStrength: string; grade: string; gradeColor: string;
     allTimeHigh: number; allTimeHighDate: string;
     allTimeLow: number; allTimeLowDate: string;
+    // Third-party data (Skinport)
+    skinportListings: number;
+    skinportMinPrice: number; // USD, raw (no markup)
+    skinportSuggestedPrice: number; // USD, raw (no markup)
+    skinportPriceAdj: number; // USD, with 15% markup for Steam parity
+    skinportVol7d: number;
+    skinportVol30d: number;
   }
 
   const data: Row[] = [];
@@ -872,7 +1148,7 @@ async function main() {
     const key = stickerKey(s.name, s.quality);
     const hashName = getMarketHashName(s.name, s.quality);
     const price = currentPrices[key] || 0;
-    const totalCost = s.qty * 0.35;
+    const totalCost = s.qty * config.costPerUnit;
     const totalValue = s.qty * price;
     const pl = totalValue - totalCost;
     const roi = totalCost > 0 ? ((pl / totalCost) * 100).toFixed(1) : "0";
@@ -899,8 +1175,16 @@ async function main() {
     }
     if (allTimeLow === Infinity) { allTimeLow = 0; allTimeLowDate = '-'; }
 
+    // Third-party data (Skinport) — volume + prices (with 15% markup for Steam parity)
+    const spData = skinportSales[hashName] || { vol24h: 0, vol7d: 0, vol30d: 0, vol90d: 0 };
+    const spListData = skinportListings[hashName] || { listings: 0, minPrice: 0, suggestedPrice: 0 };
+    const spMinPrice = spListData.minPrice || 0; // USD
+    const spSuggestedPrice = spListData.suggestedPrice || 0; // USD
+    // Convert USD→AUD, then apply 15% markup for Steam seller fee parity
+    const spPriceAdj = spMinPrice > 0 ? spMinPrice * USD_TO_AUD * 1.15 : 0;
+
     data.push({
-      name: s.name, quality: s.quality, qty: s.qty, costPerUnit: 0.35,
+      name: s.name, quality: s.quality, qty: s.qty, costPerUnit: config.costPerUnit,
       totalCost, currentPrice: price, totalValue, profitLoss: pl,
       roi: roi + '%', marketUrl: getMarketUrl(hashName), hashName, priceHistory: ph,
       imageUrl: getImageUrl(imageCache, hashName, 128),
@@ -908,6 +1192,12 @@ async function main() {
       isTeam: TEAM_NAMES.has(s.name),
       volume: vol, listings: list, priceStrength: strength, grade: invGrade, gradeColor,
       allTimeHigh, allTimeHighDate, allTimeLow, allTimeLowDate,
+      skinportListings: spListData.listings,
+      skinportMinPrice: spMinPrice,
+      skinportSuggestedPrice: spSuggestedPrice,
+      skinportPriceAdj: spPriceAdj,
+      skinportVol7d: spData.vol7d,
+      skinportVol30d: spData.vol30d,
     });
 
     grandQty += s.qty;
@@ -944,9 +1234,9 @@ async function main() {
     const mid = Math.floor(sorted.length / 2);
     return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   })() : 0;
-  const mostTraded = [...data].filter(r => r.volume > 0).sort((a, b) => b.volume - a.volume).slice(0, 10);
-  const leastTraded = [...data].filter(r => r.volume >= 1).sort((a, b) => a.volume - b.volume).slice(0, 10);
-  const mostListed = [...data].filter(r => r.listings > 0).sort((a, b) => b.listings - a.listings).slice(0, 10);
+  const mostTraded = [...data].filter(r => r.volume > 0).sort((a, b) => b.volume - a.volume).slice(0, 30);
+  const leastTraded = [...data].filter(r => r.volume >= 1).sort((a, b) => a.volume - b.volume).slice(0, 30);
+  const mostListed = [...data].filter(r => r.listings > 0).sort((a, b) => b.listings - a.listings).slice(0, 30);
 
   // Player/Team grouping data
   const playerTeamGroups: Record<string, { name: string; rows: Row[]; totalInvested: number; totalValue: number; combinedROI: string; imageUrl: string }> = {};
@@ -968,8 +1258,8 @@ async function main() {
   // Extra metrics
   const avgStickerValue = grandValue / grandQty;
   const breakEvenPct = Math.min((grandValue / grandCost) * 100, 999);
-  const profitableCount = data.filter(r => r.currentPrice >= 0.35).length;
-  const unprofitableCount = data.filter(r => r.currentPrice > 0 && r.currentPrice < 0.35).length;
+  const profitableCount = data.filter(r => r.currentPrice >= config.costPerUnit).length;
+  const unprofitableCount = data.filter(r => r.currentPrice > 0 && r.currentPrice < config.costPerUnit).length;
   const bestPerformer = [...data].filter(r => r.currentPrice > 0).sort((a, b) => b.currentPrice - a.currentPrice)[0];
   const worstPerformer = [...data].filter(r => r.currentPrice > 0).sort((a, b) => a.currentPrice - b.currentPrice)[0];
 
@@ -1011,7 +1301,7 @@ async function main() {
 
   // Per-sticker time to ROI
   function stickerROIEstimate(r: Row): string {
-    if (r.currentPrice >= 0.35) return 'Profitable';
+    if (r.currentPrice >= config.costPerUnit) return 'Profitable';
     if (r.currentPrice === 0) return 'No data';
     if (r.priceHistory.length >= 2) {
       const first = r.priceHistory[0];
@@ -1019,7 +1309,7 @@ async function main() {
       const days = (new Date(last.date).getTime() - new Date(first.date).getTime()) / 86400000;
       if (days > 0) {
         const daily = (last.price - first.price) / days;
-        if (daily > 0) return `~${Math.ceil((0.35 - r.currentPrice) / daily)}d`;
+        if (daily > 0) return `~${Math.ceil((config.costPerUnit - r.currentPrice) / daily)}d`;
         return 'Declining';
       }
     }
@@ -1065,8 +1355,8 @@ async function main() {
     { label: '$0.15-0.20', min: 0.15, max: 0.20 },
     { label: '$0.20-0.25', min: 0.20, max: 0.25 },
     { label: '$0.25-0.30', min: 0.25, max: 0.30 },
-    { label: '$0.30-0.35', min: 0.30, max: 0.35 },
-    { label: '$0.35-0.50', min: 0.35, max: 0.50 },
+    { label: '$0.30-' + config.costPerUnit.toFixed(2), min: 0.30, max: config.costPerUnit },
+    { label: '$' + config.costPerUnit.toFixed(2) + '-0.50', min: config.costPerUnit, max: 0.50 },
     { label: '$0.50-1.00', min: 0.50, max: 1.00 },
     { label: '$1.00-2.00', min: 1.00, max: 2.00 },
     { label: '$2.00-5.00', min: 2.00, max: 5.00 },
@@ -1090,8 +1380,8 @@ async function main() {
   // Distance to break-even per sticker
   function distToBreakEven(price: number): string {
     if (price === 0) return '-';
-    const diff = price - 0.35;
-    const pct = (diff / 0.35 * 100).toFixed(1);
+    const diff = price - config.costPerUnit;
+    const pct = (diff / config.costPerUnit * 100).toFixed(1);
     return `${parseFloat(pct) >= 0 ? '+' : ''}${pct}%`;
   }
 
@@ -1099,6 +1389,110 @@ async function main() {
   const portfolioHistory = history.entries.map(e => ({
     date: e.date, value: e.totalValue, cost: e.totalCost,
   }));
+
+  // ── Weekly Snapshots ──────────────────────────────────────────────────
+  function getISOWeek(dateStr: string): string {
+    const d = new Date(dateStr);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+    const week1 = new Date(d.getFullYear(), 0, 4);
+    const weekNum = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+    return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+  }
+  function weekLabel(dateStr: string): string {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  interface WeeklySnapshot {
+    weekKey: string;
+    weekLabel: string;
+    date: string;
+    totalValue: number;
+    totalCost: number;
+    qualityBreakdown: { quality: string; value: number; count: number; avgPrice: number }[];
+    priceDistribution: { label: string; count: number }[];
+    topMovers: { name: string; quality: string; change: number }[];
+  }
+
+  const weeklyPriceBins = [
+    { label: '$0-0.05', min: 0, max: 0.05 },
+    { label: '$0.05-0.10', min: 0.05, max: 0.10 },
+    { label: '$0.10-0.20', min: 0.10, max: 0.20 },
+    { label: '$0.20-0.50', min: 0.20, max: 0.50 },
+    { label: '$0.50-1', min: 0.50, max: 1.00 },
+    { label: '$1-5', min: 1.00, max: 5.00 },
+    { label: '$5-20', min: 5.00, max: 20.00 },
+    { label: '$20+', min: 20.00, max: Infinity },
+  ];
+
+  // Group entries by ISO week, take last entry per week
+  const weekGroups: Record<string, typeof history.entries> = {};
+  for (const entry of history.entries) {
+    const wk = getISOWeek(entry.date);
+    if (!weekGroups[wk]) weekGroups[wk] = [];
+    weekGroups[wk].push(entry);
+  }
+
+  const weeklySnapshots: WeeklySnapshot[] = Object.entries(weekGroups)
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([wk, entries]) => {
+      const entry = entries[entries.length - 1]; // last entry of the week
+      const prices = entry.prices || {};
+
+      // Quality breakdown
+      const qualityMap: Record<string, { value: number; count: number }> = {};
+      for (const [key, price] of Object.entries(prices)) {
+        const parts = key.split('|||');
+        const quality = parts[1] || 'Normal';
+        if (!qualityMap[quality]) qualityMap[quality] = { value: 0, count: 0 };
+        // Find qty from stickers array
+        const s = stickers.find(st => stickerKey(st.name, st.quality) === key);
+        const qty = s?.qty || 1;
+        qualityMap[quality].value += (price as number) * qty;
+        qualityMap[quality].count += qty;
+      }
+      const qualityBreakdown = Object.entries(qualityMap)
+        .map(([quality, { value, count }]) => ({ quality, value, count, avgPrice: count > 0 ? value / count : 0 }))
+        .sort((a, b) => b.value - a.value);
+
+      // Price distribution
+      const priceDistribution = weeklyPriceBins.map(b => ({
+        label: b.label,
+        count: Object.values(prices).filter(p => (p as number) > 0 && (p as number) >= b.min && (p as number) < b.max).length,
+      })).filter(b => b.count > 0);
+
+      // Top movers (vs previous week if available)
+      const prevWeekEntries = Object.entries(weekGroups)
+        .filter(([k]) => k < wk)
+        .sort(([a], [b]) => b.localeCompare(a));
+      const topMovers: { name: string; quality: string; change: number }[] = [];
+      if (prevWeekEntries.length > 0) {
+        const prevEntry = prevWeekEntries[0][1][prevWeekEntries[0][1].length - 1];
+        const prevPrices = prevEntry.prices || {};
+        const changes: { name: string; quality: string; change: number }[] = [];
+        for (const [key, price] of Object.entries(prices)) {
+          const prevPrice = prevPrices[key] as number || 0;
+          if (prevPrice > 0 && (price as number) > 0) {
+            const parts = key.split('|||');
+            changes.push({ name: parts[0], quality: parts[1] || 'Normal', change: ((price as number) - prevPrice) / prevPrice * 100 });
+          }
+        }
+        changes.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+        topMovers.push(...changes.slice(0, 5));
+      }
+
+      return {
+        weekKey: wk,
+        weekLabel: weekLabel(entry.date),
+        date: entry.date,
+        totalValue: entry.totalValue,
+        totalCost: entry.totalCost,
+        qualityBreakdown,
+        priceDistribution,
+        topMovers,
+      };
+    });
 
   // ── Performer Trends (across snapshots) ─────────────────────────────
   interface PerformerTrend {
@@ -1123,23 +1517,33 @@ async function main() {
   }
   const topTrends: PerformerTrend[] = Object.values(topAppearances)
     .sort((a, b) => b.count - a.count || b.latestPrice - a.latestPrice)
-    .slice(0, 10)
+    .slice(0, 30)
     .map(t => ({ name: t.name, quality: t.quality, appearances: t.count, firstPrice: t.firstPrice, latestPrice: t.latestPrice, priceChange: t.latestPrice - t.firstPrice, rising: t.latestPrice >= t.firstPrice }));
   const bottomTrends: PerformerTrend[] = Object.values(bottomAppearances)
     .sort((a, b) => b.count - a.count || a.latestPrice - b.latestPrice)
-    .slice(0, 10)
+    .slice(0, 30)
     .map(t => ({ name: t.name, quality: t.quality, appearances: t.count, firstPrice: t.firstPrice, latestPrice: t.latestPrice, priceChange: t.latestPrice - t.firstPrice, rising: t.latestPrice >= t.firstPrice }));
 
   // ── Historical Major Data (fetched Mar 2026) ────────────────────────
-  // Quality mapping: Normal→Paper, Embroidered→Foil/Glitter, Holo→Holo, Gold→Gold
+  // Quality mapping: Normal→Paper, Embroidered→Foil/Glitter/Embroidered, Holo→Holo, Gold→Gold
+  // Embroidered was introduced in Copenhagen 2024 (CS2 native). Pre-CS2 equivalent = Foil/Glitter.
   interface HistoricalMajor {
     name: string;
     date: string;
     monthsOld: number;
     avgPaper: number;
-    avgMidTier: number; // Foil or Glitter (maps to Embroidered)
+    avgMidTier: number; // Foil/Glitter/Embroidered (maps to Embroidered)
     avgHolo: number;
     avgGold: number;
+    saleDays: number; // days capsules were on sale (75% off period)
+    capsulePrice: number; // current capsule price AUD
+    weight: number; // prediction weight (0-1). Pre-2019 majors weighted lower due to different market dynamics
+    notes: string; // key context for this major
+    // Skinport third-party data (from track-majors.ts)
+    skinportVol7d: number;
+    skinportVol30d: number;
+    skinportAvgPrice: number; // USD, already includes 15% markup
+    skinportListings: number;
   }
 
   const refDate = new Date();
@@ -1149,35 +1553,113 @@ async function main() {
   }
 
   const historicalMajors: HistoricalMajor[] = [
-    // Pre-2019 majors (Gold stickers didn't exist before Katowice 2019)
-    // Katowice 2014: Prices from csgoskins.gg (exceed Steam Market cap). Paper avg $1,443 USD, Holo avg $22,031 USD
-    { name: "Katowice 2014", date: "2014-03-16", monthsOld: monthsSince("2014-03-16"), avgPaper: 2236, avgMidTier: 2236, avgHolo: 34148, avgGold: 0 },
-    { name: "Cologne 2014", date: "2014-08-17", monthsOld: monthsSince("2014-08-17"), avgPaper: 17.46, avgMidTier: 17.46, avgHolo: 100.25, avgGold: 0 },
-    { name: "Katowice 2015", date: "2015-03-15", monthsOld: monthsSince("2015-03-15"), avgPaper: 50.22, avgMidTier: 223.14, avgHolo: 128.47, avgGold: 0 },
-    { name: "Cologne 2015", date: "2015-08-23", monthsOld: monthsSince("2015-08-23"), avgPaper: 11.06, avgMidTier: 58.59, avgHolo: 58.59, avgGold: 0 },
-    { name: "Cluj-Napoca 2015", date: "2015-11-01", monthsOld: monthsSince("2015-11-01"), avgPaper: 10.95, avgMidTier: 81.07, avgHolo: 81.07, avgGold: 0 },
-    { name: "Columbus 2016", date: "2016-04-03", monthsOld: monthsSince("2016-04-03"), avgPaper: 14.60, avgMidTier: 153.98, avgHolo: 68.70, avgGold: 0 },
-    { name: "Cologne 2016", date: "2016-07-10", monthsOld: monthsSince("2016-07-10"), avgPaper: 14.94, avgMidTier: 159.91, avgHolo: 39.08, avgGold: 0 },
-    { name: "Atlanta 2017", date: "2017-01-29", monthsOld: monthsSince("2017-01-29"), avgPaper: 38.12, avgMidTier: 409.85, avgHolo: 137.31, avgGold: 0 },
-    { name: "Krakow 2017", date: "2017-07-23", monthsOld: monthsSince("2017-07-23"), avgPaper: 16.86, avgMidTier: 103.13, avgHolo: 46.62, avgGold: 0 },
-    { name: "Boston 2018", date: "2018-01-28", monthsOld: monthsSince("2018-01-28"), avgPaper: 13.27, avgMidTier: 109.54, avgHolo: 94.90, avgGold: 0 },
-    { name: "London 2018", date: "2018-09-23", monthsOld: monthsSince("2018-09-23"), avgPaper: 5.84, avgMidTier: 79.90, avgHolo: 25.27, avgGold: 0 },
-    { name: "Katowice 2019", date: "2019-03-03", monthsOld: monthsSince("2019-03-03"), avgPaper: 5.43, avgMidTier: 35.75, avgHolo: 12.27, avgGold: 606.69 },
-    // Post-2019 majors (all have Gold tier)
-    { name: "Berlin 2019", date: "2019-09-08", monthsOld: monthsSince("2019-09-08"), avgPaper: 1.17, avgMidTier: 6.95, avgHolo: 6.95, avgGold: 95.90 },
-    { name: "Stockholm 2021", date: "2021-11-07", monthsOld: monthsSince("2021-11-07"), avgPaper: 0.26, avgMidTier: 6.53, avgHolo: 11.16, avgGold: 58.56 },
-    { name: "Antwerp 2022", date: "2022-05-22", monthsOld: monthsSince("2022-05-22"), avgPaper: 0.13, avgMidTier: 0.13, avgHolo: 17.72, avgGold: 40.34 },
-    { name: "Rio 2022", date: "2022-11-13", monthsOld: monthsSince("2022-11-13"), avgPaper: 0.24, avgMidTier: 0.24, avgHolo: 7.62, avgGold: 41.40 },
-    // Last 4 majors — updated with researched prices (March 2026, AUD ≈ 1.55x USD)
-    // Paris 2023: 30mo post-removal, worst investment ever ($110M sales, 377K listings). Capsules $0.07-$0.09 USD
-    { name: "Paris 2023", date: "2023-05-21", monthsOld: monthsSince("2023-05-21"), avgPaper: 0.14, avgMidTier: 0.73, avgHolo: 11.10, avgGold: 34.81 },
-    // Copenhagen 2024: 18mo post-removal, first CS2 major. Capsules $0.42-$0.71 USD, donk Gold ~$111 USD
-    { name: "Copenhagen 2024", date: "2024-03-31", monthsOld: monthsSince("2024-03-31"), avgPaper: 0.12, avgMidTier: 2.15, avgHolo: 23.10, avgGold: 172.73 },
-    // Shanghai 2024: 11mo post-removal, only 20% of Paris volume. Capsules $0.39-$0.59 USD, donk Gold ~$62 USD
-    { name: "Shanghai 2024", date: "2024-12-15", monthsOld: monthsSince("2024-12-15"), avgPaper: 0.09, avgMidTier: 1.19, avgHolo: 22.48, avgGold: 96.10 },
-    // Austin 2025: 5mo post-removal, shortest sale (48 days). Capsules $0.27-$0.41 USD, 121K listings
-    { name: "Austin 2025", date: "2025-06-15", monthsOld: monthsSince("2025-06-15"), avgPaper: 0.05, avgMidTier: 0.34, avgHolo: 16.12, avgGold: 41.54 },
+    // Pre-2019 majors — weighted MUCH lower (1-10%) due to completely different market dynamics
+    // Katowice 2014: Only ~350 sticker capsules existed. Paper avg $1,443 USD, Holo avg $22,031 USD. Extreme outlier.
+    { name: "Katowice 2014", date: "2014-03-16", monthsOld: monthsSince("2014-03-16"), avgPaper: 2236, avgMidTier: 2236, avgHolo: 34148, avgGold: 0, saleDays: 30, capsulePrice: 0, weight: 0.003, notes: "Extreme outlier. Only ~350 capsules existed. Not comparable to modern market." },
+    { name: "Cologne 2014", date: "2014-08-17", monthsOld: monthsSince("2014-08-17"), avgPaper: 17.46, avgMidTier: 17.46, avgHolo: 100.25, avgGold: 0, saleDays: 45, capsulePrice: 0, weight: 0.05, notes: "Early CS:GO era, small player base. Holo designs iconic." },
+    { name: "Katowice 2015", date: "2015-03-15", monthsOld: monthsSince("2015-03-15"), avgPaper: 50.22, avgMidTier: 223.14, avgHolo: 128.47, avgGold: 0, saleDays: 45, capsulePrice: 0, weight: 0.02, notes: "Katowice brand premium. Foil stickers introduced. Extreme ROI outlier — low supply era." },
+    { name: "Cologne 2015", date: "2015-08-23", monthsOld: monthsSince("2015-08-23"), avgPaper: 11.06, avgMidTier: 58.59, avgHolo: 58.59, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Decent designs. Growing player base." },
+    { name: "Cluj-Napoca 2015", date: "2015-11-01", monthsOld: monthsSince("2015-11-01"), avgPaper: 10.95, avgMidTier: 81.07, avgHolo: 81.07, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Less popular location. Moderate returns." },
+    { name: "Columbus 2016", date: "2016-04-03", monthsOld: monthsSince("2016-04-03"), avgPaper: 14.60, avgMidTier: 153.98, avgHolo: 68.70, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "MLG Columbus. NA major. Good team variety." },
+    { name: "Cologne 2016", date: "2016-07-10", monthsOld: monthsSince("2016-07-10"), avgPaper: 14.94, avgMidTier: 159.91, avgHolo: 39.08, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Peak CS:GO viewership era." },
+    // Atlanta 2017: Massive price increase due to unique designs, growing investor interest, and limited supply
+    { name: "Atlanta 2017", date: "2017-01-29", monthsOld: monthsSince("2017-01-29"), avgPaper: 38.12, avgMidTier: 409.85, avgHolo: 137.31, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.04, notes: "Best pre-2019 investment. ELEAGUE production quality drove collector interest. VP/Astralis iconic stickers. Extreme ROI outlier — not representative of modern market." },
+    { name: "Krakow 2017", date: "2017-07-23", monthsOld: monthsSince("2017-07-23"), avgPaper: 16.86, avgMidTier: 103.13, avgHolo: 46.62, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.10, notes: "PGL production. Decent returns but less than Atlanta." },
+    // 2018-2019 majors — more relevant, weighted higher (15-25%)
+    { name: "Boston 2018", date: "2018-01-28", monthsOld: monthsSince("2018-01-28"), avgPaper: 13.27, avgMidTier: 109.54, avgHolo: 94.90, avgGold: 0, saleDays: 60, capsulePrice: 331, weight: 0.15, notes: "Last major with separate Holo/Foil capsules at low price. 100 Thieves pulled sticker = ultra-rare. Cloud9 underdog win. Prices took off ~12-18mo, accelerated 2020-2021." },
+    { name: "London 2018", date: "2018-09-23", monthsOld: monthsSince("2018-09-23"), avgPaper: 5.84, avgMidTier: 79.90, avgHolo: 25.27, avgGold: 0, saleDays: 60, capsulePrice: 23, weight: 0.15, notes: "FACEIT major. Astralis dynasty. Steady appreciation over 18-24mo, not explosive." },
+    { name: "Katowice 2019", date: "2019-03-03", monthsOld: monthsSince("2019-03-03"), avgPaper: 5.43, avgMidTier: 35.75, avgHolo: 12.27, avgGold: 606.69, saleDays: 75, capsulePrice: 17, weight: 0.20, notes: "First Gold stickers. Katowice brand. Inflection at 12-18mo. COVID gap helped scarcity." },
+    { name: "Berlin 2019", date: "2019-09-08", monthsOld: monthsSince("2019-09-08"), avgPaper: 1.17, avgMidTier: 6.95, avgHolo: 6.95, avgGold: 95.90, saleDays: 75, capsulePrice: 2.3, weight: 0.20, notes: "WORST pre-CS2 investment. Ugly designs. Massive oversupply. $11M+ revenue. COVID stockpiling made it worse. Never took off." },
+    // Post-COVID / CS2 transition majors — MOST relevant, weighted highest (30-100%)
+    { name: "Stockholm 2021", date: "2021-11-07", monthsOld: monthsSince("2021-11-07"), avgPaper: 0.26, avgMidTier: 6.53, avgHolo: 11.16, avgGold: 58.56, saleDays: 80, capsulePrice: 3.8, weight: 0.60, notes: "2yr gap since Berlin. First combined capsule format. s1mple won. Prices skyrocketed 20x by 2023. Inflection at 6-9mo. CS2 announcement catalysed gains." },
+    { name: "Antwerp 2022", date: "2022-05-22", monthsOld: monthsSince("2022-05-22"), avgPaper: 0.13, avgMidTier: 0.13, avgHolo: 17.72, avgGold: 40.34, saleDays: 90, capsulePrice: 0.7, weight: 0.60, notes: "FaZe won. Only 6mo after Stockholm — diluted demand. Never achieved significant appreciation. CS2 briefly boosted prices." },
+    { name: "Rio 2022", date: "2022-11-13", monthsOld: monthsSince("2022-11-13"), avgPaper: 0.24, avgMidTier: 0.24, avgHolo: 7.62, avgGold: 41.40, saleDays: 100, capsulePrice: 0.35, weight: 0.70, notes: "Worst modern investment. Longest sale to date. 2 majors same year flooded market. Brazilian crowd drove buying but oversaturated supply." },
+    // CS2-era majors — highest relevance for Budapest 2025 predictions
+    { name: "Paris 2023", date: "2023-05-21", monthsOld: monthsSince("2023-05-21"), avgPaper: 0.14, avgMidTier: 0.73, avgHolo: 11.10, avgGold: 34.81, saleDays: 146, capsulePrice: 0.14, weight: 0.80, notes: "$110M+ revenue — most bought stickers EVER. 377K listings. 5-month sale. Glitter introduced. Still declining after 2.5yr. Worst investment in history." },
+    { name: "Copenhagen 2024", date: "2024-03-31", monthsOld: monthsSince("2024-03-31"), avgPaper: 0.12, avgMidTier: 2.15, avgHolo: 23.10, avgGold: 172.73, saleDays: 152, capsulePrice: 0.65, weight: 0.90, notes: "First CS2-native major. 152-day sale (longest). Embroidered quality introduced. donk Gold ~$111. Slowly climbing +10% monthly. Inflection at ~6mo post-removal." },
+    { name: "Shanghai 2024", date: "2024-12-15", monthsOld: monthsSince("2024-12-15"), avgPaper: 0.09, avgMidTier: 1.19, avgHolo: 22.48, avgGold: 96.10, saleDays: 130, capsulePrice: 0.92, weight: 0.95, notes: "First China major. Team Spirit won. 20% of Paris volume. Volatile early. Sale removed Apr 2025." },
+    { name: "Austin 2025", date: "2025-06-15", monthsOld: monthsSince("2025-06-15"), avgPaper: 0.05, avgMidTier: 0.34, avgHolo: 16.12, avgGold: 41.54, saleDays: 49, capsulePrice: 0.42, weight: 1.00, notes: "Shortest modern sale (49 days). Prices doubled within hours of removal. 121K listings vs Paris 377K. TYLOO holo $66. Best scarcity profile since Stockholm." },
   ];
+  // Set Skinport defaults for all entries (will be overridden by live data below)
+  for (const m of historicalMajors) { m.skinportVol7d = m.skinportVol7d || 0; m.skinportVol30d = m.skinportVol30d || 0; m.skinportAvgPrice = m.skinportAvgPrice || 0; m.skinportListings = m.skinportListings || 0; }
+
+  // ── Update historicalMajors with live tracked data from major_price_history.json ──
+  // This file is updated every 2 days by track-majors.ts
+  interface MajorPriceHistoryEntry {
+    date: string;
+    averages: Record<string, { avgNormal: number; avgMidTier: number; avgHolo: number; avgGold: number; totalVolume: number; stickerCount: number; skinportTotalVol7d?: number; skinportTotalVol30d?: number; skinportAvgPrice?: number; skinportListings?: number }>;
+    stickers: Record<string, { price: number; volume: number; medianPrice: number }>;
+    skinportData?: Record<string, { listings: number; minPrice: number; suggestedPrice: number; vol7d: number; vol30d: number; vol90d: number; avg7d: number; avg30d: number }>;
+  }
+  let majorPriceHistory: { entries: MajorPriceHistoryEntry[] } = { entries: [] };
+  let majorPriceLastUpdated = '';
+  try {
+    const raw = await Bun.file(MAJOR_HISTORY_FILE).text();
+    majorPriceHistory = JSON.parse(raw);
+    if (majorPriceHistory.entries.length > 0) {
+      const latest = majorPriceHistory.entries[majorPriceHistory.entries.length - 1];
+      majorPriceLastUpdated = latest.date;
+      // Override hardcoded averages with live data (Steam + Skinport)
+      for (const m of historicalMajors) {
+        const liveData = latest.averages[m.name];
+        if (liveData && liveData.stickerCount >= 2) {
+          if (liveData.avgNormal > 0) m.avgPaper = liveData.avgNormal;
+          if (liveData.avgMidTier > 0) m.avgMidTier = liveData.avgMidTier;
+          if (liveData.avgHolo > 0) m.avgHolo = liveData.avgHolo;
+          if (liveData.avgGold > 0) m.avgGold = liveData.avgGold;
+          // Skinport data (has 15% markup in USD from track-majors.ts — convert to AUD)
+          if (liveData.skinportTotalVol7d !== undefined) m.skinportVol7d = liveData.skinportTotalVol7d;
+          if (liveData.skinportTotalVol30d !== undefined) m.skinportVol30d = liveData.skinportTotalVol30d;
+          if (liveData.skinportAvgPrice !== undefined) m.skinportAvgPrice = liveData.skinportAvgPrice * USD_TO_AUD;
+          if (liveData.skinportListings !== undefined) m.skinportListings = liveData.skinportListings;
+        }
+      }
+      console.log(`  Updated ${Object.keys(latest.averages).length} majors with live price + Skinport data from ${majorPriceLastUpdated}`);
+    }
+  } catch { /* no major history yet — use hardcoded values */ }
+
+  // Build major price trend data for charts (all entries over time)
+  const majorPriceTrends: { date: string; majors: Record<string, { avgNormal: number; avgHolo: number; avgGold: number }> }[] = [];
+  for (const entry of majorPriceHistory.entries) {
+    const majors: Record<string, { avgNormal: number; avgHolo: number; avgGold: number }> = {};
+    for (const [name, avg] of Object.entries(entry.averages)) {
+      majors[name] = { avgNormal: avg.avgNormal, avgHolo: avg.avgHolo, avgGold: avg.avgGold };
+    }
+    majorPriceTrends.push({ date: entry.date, majors });
+  }
+
+  // Capsule investment data (for 60 capsules prediction)
+  interface CapsuleHistory {
+    name: string;
+    salePrice: number; // AUD at 75% off (~$0.39 AUD = $0.25 USD)
+    currentPrice: number; // AUD
+    roi: number; // percentage
+    monthsOld: number;
+    saleDays: number;
+  }
+  const capsuleHistory: CapsuleHistory[] = [
+    { name: "Boston 2018", salePrice: 0.39, currentPrice: 331, roi: ((331-0.39)/0.39*100), monthsOld: monthsSince("2018-03-01"), saleDays: 60 },
+    { name: "London 2018", salePrice: 0.39, currentPrice: 23, roi: ((23-0.39)/0.39*100), monthsOld: monthsSince("2018-11-01"), saleDays: 60 },
+    { name: "Katowice 2019", salePrice: 0.39, currentPrice: 17, roi: ((17-0.39)/0.39*100), monthsOld: monthsSince("2019-05-01"), saleDays: 75 },
+    { name: "Berlin 2019", salePrice: 0.39, currentPrice: 2.3, roi: ((2.3-0.39)/0.39*100), monthsOld: monthsSince("2019-11-01"), saleDays: 75 },
+    { name: "Stockholm 2021", salePrice: 0.39, currentPrice: 3.8, roi: ((3.8-0.39)/0.39*100), monthsOld: monthsSince("2022-01-18"), saleDays: 80 },
+    { name: "Antwerp 2022", salePrice: 0.39, currentPrice: 0.7, roi: ((0.7-0.39)/0.39*100), monthsOld: monthsSince("2022-08-01"), saleDays: 90 },
+    { name: "Rio 2022", salePrice: 0.39, currentPrice: 0.35, roi: ((0.35-0.39)/0.39*100), monthsOld: monthsSince("2023-02-20"), saleDays: 100 },
+    { name: "Paris 2023", salePrice: 0.39, currentPrice: 0.14, roi: ((0.14-0.39)/0.39*100), monthsOld: monthsSince("2023-09-27"), saleDays: 146 },
+    { name: "Copenhagen 2024", salePrice: 0.39, currentPrice: 0.65, roi: ((0.65-0.39)/0.39*100), monthsOld: monthsSince("2024-08-01"), saleDays: 152 },
+    { name: "Shanghai 2024", salePrice: 0.39, currentPrice: 0.92, roi: ((0.92-0.39)/0.39*100), monthsOld: monthsSince("2025-04-20"), saleDays: 130 },
+    { name: "Austin 2025", salePrice: 0.39, currentPrice: 0.42, roi: ((0.42-0.39)/0.39*100), monthsOld: monthsSince("2025-10-02"), saleDays: 49 },
+  ];
+  const CAPSULE_QTY = config.capsules.qty;
+  const CAPSULE_COST_EACH = config.capsules.costEach;
+  const capsuleTotalCost = CAPSULE_QTY * CAPSULE_COST_EACH;
+  // Weighted average capsule ROI (weight recent majors higher)
+  const capsuleWeights = capsuleHistory.map((c, i) => i < 4 ? 0.10 : i < 7 ? 0.50 : 1.00);
+  const capsuleWeightedROI = capsuleHistory.reduce((acc, c, i) => acc + c.roi * capsuleWeights[i], 0) / capsuleWeights.reduce((a, w) => a + w, 0);
+  const capsuleProjectedValue = capsuleTotalCost * (1 + capsuleWeightedROI / 100);
+  // Conservative capsule prediction based on most similar major (Austin 2025 — shortest sale)
+  const austinCapsule = capsuleHistory.find(c => c.name === "Austin 2025");
+  const capsuleConservativeROI = austinCapsule ? austinCapsule.roi : 0;
 
   // User's quality distribution
   const userNormalCount = data.filter(r => r.quality === 'Normal' || r.quality.startsWith('Normal')).reduce((a, r) => a + r.qty, 0);
@@ -1234,9 +1716,9 @@ async function main() {
   // Timeline projections for Budapest 2025
   // Use historical data points (months vs weighted ROI) to project future values
   // Bias towards last 4 majors (most relevant for modern CS2 economy)
-  const recentMajors = new Set(["Paris 2023", "Copenhagen 2024", "Shanghai 2024", "Austin 2025"]);
-  const KATOWICE_2014_WEIGHT = 0.02; // Heavy de-weight Katowice 2014 (extreme outlier, not realistic for modern majors)
-  const RECENCY_BOOST = 5; // 5x weight for last 4 majors (data-driven short-term predictions)
+  // Use per-major weight field from historicalMajors for prediction weighting
+  const majorWeightMap: Record<string, number> = {};
+  for (const m of historicalMajors) majorWeightMap[m.name] = m.weight;
   // 2-week intervals for first year, monthly for year 2, then quarterly/yearly out to 12 years
   const timePoints = [
     0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12,
@@ -1252,7 +1734,7 @@ async function main() {
       // Weight closer majors more heavily, with recency bias for last 4 majors
       let totalWeight = 0, weightedROI = 0;
       for (const p of nearby) {
-        const w = (1 / (1 + Math.abs(p.monthsOld - targetMonths))) * (recentMajors.has(p.name) ? RECENCY_BOOST : 1) * (p.name === 'Katowice 2014' ? KATOWICE_2014_WEIGHT : 1);
+        const w = (1 / (1 + Math.abs(p.monthsOld - targetMonths))) * (majorWeightMap[p.name] || 0.10);
         weightedROI += p.roi * w;
         totalWeight += w;
       }
@@ -1273,7 +1755,7 @@ async function main() {
   });
 
   // Match actual data from price history snapshots
-  const BUDAPEST_EVENT = new Date("2025-09-15"); // approximate sticker release date
+  const BUDAPEST_EVENT = new Date(config.eventReleaseDate);
   for (const tp of timeProjections) {
     const targetDate = new Date(BUDAPEST_EVENT.getTime() + tp.months * 30.44 * 86400000);
     if (targetDate <= refDate && history.entries.length > 0) {
@@ -1338,7 +1820,7 @@ async function main() {
   const cycleScore = budapestMonths <= 6 ? 8 : budapestMonths <= 18 ? 7 : budapestMonths <= 48 ? 5 : 3;
   const cycleLabel = budapestMonths <= 6 ? 'Accumulation Phase' : budapestMonths <= 18 ? 'Early Growth' : budapestMonths <= 48 ? 'Appreciation' : 'Mature';
   // Factor 2: Performance vs history at same age
-  const nearbyForScore = projections.filter(p => p.name !== 'Katowice 2014' && Math.abs(p.monthsOld - budapestMonths) <= 12);
+  const nearbyForScore = projections.filter(p => (majorWeightMap[p.name] || 0) >= 0.10 && Math.abs(p.monthsOld - budapestMonths) <= 12);
   const avgHistROI = nearbyForScore.length > 0 ? nearbyForScore.reduce((a, p) => a + p.roi, 0) / nearbyForScore.length : 0;
   const currentROI = parseFloat(grandROI);
   const perfScore = currentROI > avgHistROI ? 8 : currentROI > avgHistROI * 0.5 ? 6 : currentROI > 0 ? 4 : 2;
@@ -1411,26 +1893,39 @@ async function main() {
   // For each major, estimate peak appreciation period based on age and ROI
   interface SellWindow { label: string; months: number; avgROI: number; majorsInRange: string[]; recommendation: string; }
   const sellWindows: SellWindow[] = [
+    // Weekly for first 3 months
+    { label: '1 Week', months: 0.25, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '2 Weeks', months: 0.5, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '3 Weeks', months: 0.75, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '1 Month', months: 1, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '6 Weeks', months: 1.5, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '2 Months', months: 2, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '3 Months', months: 3, avgROI: 0, majorsInRange: [], recommendation: '' },
+    // Monthly until 1 year
+    { label: '4 Months', months: 4, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '5 Months', months: 5, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '6 Months', months: 6, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '8 Months', months: 8, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '10 Months', months: 10, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '1 Year', months: 12, avgROI: 0, majorsInRange: [], recommendation: '' },
+    // Quarterly/yearly beyond
     { label: '1.5 Years', months: 18, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '2 Years', months: 24, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '2.5 Years', months: 30, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '3 Years', months: 36, avgROI: 0, majorsInRange: [], recommendation: '' },
+    { label: '4 Years', months: 48, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '5 Years', months: 60, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '7 Years', months: 84, avgROI: 0, majorsInRange: [], recommendation: '' },
     { label: '10 Years', months: 120, avgROI: 0, majorsInRange: [], recommendation: '' },
   ];
-  const realisticProjections = projections.filter(p => p.name !== 'Katowice 2014');
+  const realisticProjections = projections.filter(p => (majorWeightMap[p.name] || 0) >= 0.05);
   for (const sw of sellWindows) {
     const searchRadius = Math.max(6, sw.months * 0.5); // proportional search radius
     const nearby = realisticProjections.filter(p => Math.abs(p.monthsOld - sw.months) <= searchRadius);
     if (nearby.length > 0) {
       let tw = 0, wr = 0;
       for (const p of nearby) {
-        const w = 1 / (1 + Math.abs(p.monthsOld - sw.months));
+        const w = (1 / (1 + Math.abs(p.monthsOld - sw.months))) * (majorWeightMap[p.name] || 0.10);
         wr += p.roi * w;
         tw += w;
       }
@@ -1448,30 +1943,33 @@ async function main() {
   const bestSellDate = new Date(new Date("2025-09-15").getTime() + bestSellMonths * 30.44 * 86400000);
   const bestSellStr = `${bestSellDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
 
-  // ── Slab Analysis Data ────────────────────────────────────────────
+  // ── Slab Sell Strategy Data ───────────────────────────────────────
+  // Focus: should you sell stickers individually or encase in a slab (5 stickers) to sell?
+  // Slab premium > 0 means slabs sell for MORE than 5x individual = better to slab & sell
   const currentSlabPrices = todayEntry.slabPrices || {};
-  interface SlabRow { name: string; quality: string; stickerPrice: number; fiveXPrice: number; slabPrice: number; premiumPct: number; verdict: string; verdictColor: string; hashName: string; }
+  interface SlabRow { name: string; quality: string; stickerPrice: number; fiveXPrice: number; slabPrice: number; premiumPct: number; verdict: string; verdictColor: string; hashName: string; heldQty: number; canSlab: boolean; }
   const slabRows: SlabRow[] = [];
-  let slabsCheaper = 0, slabsAvailable = 0, totalPremium = 0;
+  let slabsWithPremium = 0, slabsAvailable = 0, totalPremium = 0;
   for (const s of stickers) {
     const key = stickerKey(s.name, s.quality);
     const stickerPrice = currentPrices[key] || 0;
     const slabPrice = currentSlabPrices[key] || 0;
     const fiveX = stickerPrice * 5;
     const hashName = getSlabMarketHashName(s.name, s.quality);
+    const canSlab = s.qty >= 5;
     if (slabPrice > 0 && stickerPrice > 0) {
       slabsAvailable++;
       const premium = ((slabPrice - fiveX) / fiveX) * 100;
       totalPremium += premium;
-      if (premium < 0) slabsCheaper++;
+      if (premium > 5) slabsWithPremium++;
       slabRows.push({
         name: s.name, quality: s.quality, stickerPrice, fiveXPrice: fiveX, slabPrice,
-        premiumPct: premium, hashName,
-        verdict: premium < -5 ? 'Buy Slab' : premium > 5 ? 'Buy Individual' : 'Similar',
-        verdictColor: premium < -5 ? '#22c55e' : premium > 5 ? '#ef4444' : '#888',
+        premiumPct: premium, hashName, heldQty: s.qty, canSlab,
+        verdict: premium > 20 ? 'Slab & Sell' : premium > 5 ? 'Slab Preferred' : premium > -5 ? 'Either Way' : 'Sell Individual',
+        verdictColor: premium > 20 ? '#22c55e' : premium > 5 ? '#5ba32b' : premium > -5 ? '#888' : '#f59e0b',
       });
     } else if (stickerPrice > 0) {
-      slabRows.push({ name: s.name, quality: s.quality, stickerPrice, fiveXPrice: fiveX, slabPrice: 0, premiumPct: 0, hashName, verdict: 'No Listing', verdictColor: '#555' });
+      slabRows.push({ name: s.name, quality: s.quality, stickerPrice, fiveXPrice: fiveX, slabPrice: 0, premiumPct: 0, hashName, heldQty: s.qty, canSlab, verdict: 'No Slab Data', verdictColor: '#555' });
     }
   }
   // Deduplicate slab rows (same name+quality appears once)
@@ -1483,6 +1981,9 @@ async function main() {
     return true;
   });
   const avgPremium = slabsAvailable > 0 ? totalPremium / slabsAvailable : 0;
+  const slabsCheaper = uniqueSlabRows.filter(r => r.slabPrice > 0 && r.premiumPct < -5).length;
+  const slabbableItems = uniqueSlabRows.filter(r => r.canSlab && r.slabPrice > 0 && r.premiumPct > 5);
+  const slabProfitPotential = slabbableItems.reduce((acc, r) => acc + (r.slabPrice - r.fiveXPrice), 0);
 
   // Helper to generate strength bar HTML
   function strengthBarsHtml(strength: string): string {
@@ -1508,14 +2009,100 @@ async function main() {
     return '<span class="grade-badge" style="background:' + color + '20;color:' + color + '">' + grade + '</span>';
   }
 
+  // ── Alternative Investment Comparison (Gold, Silver, BTC, ETH, SOL) ──
+  // What if you had invested the same $grandCost AUD in these assets instead?
+  const investmentDateStr = history.entries.length > 0 ? history.entries[0].date.slice(0, 10) : '2025-09-01';
+  const investmentAmountUsd = grandCost * exchangeRates.audToUsd;
+  console.log(`\nFetching alternative investment data (purchase date: ${investmentDateStr}, amount: $${grandCost.toFixed(2)} AUD / $${investmentAmountUsd.toFixed(2)} USD)...`);
+
+  // Fetch current gold/silver prices
+  const { goldUsd: currentGoldUsd, silverUsd: currentSilverUsd } = await fetchGoldSilverPrices();
+
+  // Fetch historical crypto prices at purchase date
+  const historicalCrypto = await fetchHistoricalCrypto(investmentDateStr);
+
+  // Historical gold/silver prices — use approximate values based on date
+  // Gold and silver don't have easy free historical APIs, so we'll estimate from known prices
+  // For Budapest 2025 stickers (purchased ~Sep 2025), gold was ~$2,500/oz, silver ~$30/oz
+  const purchaseYear = parseInt(investmentDateStr.split('-')[0]);
+  const purchaseMonth = parseInt(investmentDateStr.split('-')[1]);
+  // Approximate historical gold/silver prices (conservative estimates)
+  const histGoldUsd = purchaseYear >= 2025 ? 2500 : purchaseYear >= 2024 ? 2100 : purchaseYear >= 2023 ? 1950 : 1800;
+  const histSilverUsd = purchaseYear >= 2025 ? 30 : purchaseYear >= 2024 ? 25 : purchaseYear >= 2023 ? 23 : 22;
+
+  // Compute alternative investment returns
+  const altInvestments: AltInvestment[] = [];
+  // Gold
+  if (currentGoldUsd > 0 && histGoldUsd > 0) {
+    const ozBought = investmentAmountUsd / histGoldUsd;
+    const currentValueUsd = ozBought * currentGoldUsd;
+    const currentValueAud = currentValueUsd / exchangeRates.audToUsd;
+    const roi = ((currentValueAud - grandCost) / grandCost) * 100;
+    altInvestments.push({ name: 'Gold', symbol: 'XAU', color: '#ffd700', purchasePrice: histGoldUsd, currentPrice: currentGoldUsd, roi, investedValue: currentValueAud });
+  }
+  // Silver
+  if (currentSilverUsd > 0 && histSilverUsd > 0) {
+    const ozBought = investmentAmountUsd / histSilverUsd;
+    const currentValueUsd = ozBought * currentSilverUsd;
+    const currentValueAud = currentValueUsd / exchangeRates.audToUsd;
+    const roi = ((currentValueAud - grandCost) / grandCost) * 100;
+    altInvestments.push({ name: 'Silver', symbol: 'XAG', color: '#c0c0c0', purchasePrice: histSilverUsd, currentPrice: currentSilverUsd, roi, investedValue: currentValueAud });
+  }
+  // Bitcoin
+  if (exchangeRates.btcUsd > 0 && historicalCrypto.btc > 0) {
+    const coinsBought = investmentAmountUsd / historicalCrypto.btc;
+    const currentValueUsd = coinsBought * exchangeRates.btcUsd;
+    const currentValueAud = currentValueUsd / exchangeRates.audToUsd;
+    const roi = ((currentValueAud - grandCost) / grandCost) * 100;
+    altInvestments.push({ name: 'Bitcoin', symbol: 'BTC', color: '#f7931a', purchasePrice: historicalCrypto.btc, currentPrice: exchangeRates.btcUsd, roi, investedValue: currentValueAud });
+  }
+  // Ethereum
+  if (exchangeRates.ethUsd > 0 && historicalCrypto.eth > 0) {
+    const coinsBought = investmentAmountUsd / historicalCrypto.eth;
+    const currentValueUsd = coinsBought * exchangeRates.ethUsd;
+    const currentValueAud = currentValueUsd / exchangeRates.audToUsd;
+    const roi = ((currentValueAud - grandCost) / grandCost) * 100;
+    altInvestments.push({ name: 'Ethereum', symbol: 'ETH', color: '#627eea', purchasePrice: historicalCrypto.eth, currentPrice: exchangeRates.ethUsd, roi, investedValue: currentValueAud });
+  }
+  // Solana
+  if (exchangeRates.solUsd > 0 && historicalCrypto.sol > 0) {
+    const coinsBought = investmentAmountUsd / historicalCrypto.sol;
+    const currentValueUsd = coinsBought * exchangeRates.solUsd;
+    const currentValueAud = currentValueUsd / exchangeRates.audToUsd;
+    const roi = ((currentValueAud - grandCost) / grandCost) * 100;
+    altInvestments.push({ name: 'Solana', symbol: 'SOL', color: '#9945ff', purchasePrice: historicalCrypto.sol, currentPrice: exchangeRates.solUsd, roi, investedValue: currentValueAud });
+  }
+  // Add the sticker portfolio itself for comparison
+  const stickerROI = ((grandValue - grandCost) / grandCost) * 100;
+
+  console.log(`\nAlternative investment comparison (invested $${grandCost.toFixed(2)} AUD on ${investmentDateStr}):`);
+  console.log(`  Stickers: $${grandValue.toFixed(2)} AUD (${stickerROI >= 0 ? '+' : ''}${stickerROI.toFixed(1)}%)`);
+  for (const alt of altInvestments) {
+    console.log(`  ${alt.name}: $${alt.investedValue.toFixed(2)} AUD (${alt.roi >= 0 ? '+' : ''}${alt.roi.toFixed(1)}%)`);
+  }
+
   // ── Generate CSV ──────────────────────────────────────────────────
   let csvOut = "Sticker Name,Quality,Qty,Cost/Unit (AUD),Total Cost (AUD),Current Price (AUD),Total Value (AUD),Profit/Loss (AUD),ROI %,Steam Market Link\n";
   for (const r of data) {
     const esc = (s: string) => s.includes(',') ? `"${s}"` : s;
-    csvOut += `${esc(r.name)},${esc(r.quality)},${r.qty},0.35,${r.totalCost.toFixed(2)},${r.currentPrice.toFixed(2)},${r.totalValue.toFixed(2)},${r.profitLoss.toFixed(2)},${r.roi},${r.marketUrl}\n`;
+    csvOut += `${esc(r.name)},${esc(r.quality)},${r.qty},${config.costPerUnit},${r.totalCost.toFixed(2)},${r.currentPrice.toFixed(2)},${r.totalValue.toFixed(2)},${r.profitLoss.toFixed(2)},${r.roi},${r.marketUrl}\n`;
   }
   csvOut += `\nTOTAL,,${grandQty},,${grandCost.toFixed(2)},,${grandValue.toFixed(2)},${grandPL.toFixed(2)},${grandROI}%,\n`;
   await Bun.write(CSV_FILE, csvOut);
+
+  // ── Skinport third-party aggregates ────────────────────────────────
+  const skinportTotalListings = data.reduce((a, r) => a + r.skinportListings, 0);
+  const skinportTotal7dVol = data.reduce((a, r) => a + r.skinportVol7d, 0);
+  const skinportTotal30dVol = data.reduce((a, r) => a + r.skinportVol30d, 0);
+  const skinportTopByVol = [...data].filter(r => r.skinportVol7d > 0).sort((a, b) => b.skinportVol7d - a.skinportVol7d).slice(0, 20);
+  const skinportTopByListings = [...data].filter(r => r.skinportListings > 0).sort((a, b) => b.skinportListings - a.skinportListings).slice(0, 20);
+  // Steam vs Skinport price comparison (items with both prices)
+  const priceComparisonItems = data.filter(r => r.currentPrice > 0 && r.skinportPriceAdj > 0);
+  const avgSteamPrice = priceComparisonItems.length > 0 ? priceComparisonItems.reduce((a, r) => a + r.currentPrice, 0) / priceComparisonItems.length : 0;
+  const avgSkinportAdj = priceComparisonItems.length > 0 ? priceComparisonItems.reduce((a, r) => a + r.skinportPriceAdj, 0) / priceComparisonItems.length : 0;
+  const steamCheaperCount = priceComparisonItems.filter(r => r.currentPrice < r.skinportPriceAdj).length;
+  const skinportCheaperCount = priceComparisonItems.filter(r => r.skinportPriceAdj < r.currentPrice).length;
+  const topPriceDiffs = [...priceComparisonItems].map(r => ({ ...r, diff: r.skinportPriceAdj - r.currentPrice, diffPct: ((r.skinportPriceAdj - r.currentPrice) / r.currentPrice * 100) })).sort((a, b) => Math.abs(b.diffPct) - Math.abs(a.diffPct)).slice(0, 15);
 
   // ── Generate HTML ─────────────────────────────────────────────────
   const html = `<!DOCTYPE html>
@@ -1523,10 +2110,10 @@ async function main() {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Budapest 2025 Sticker Investment Tracker</title>
+<title>${config.siteTitle}</title>
 <link rel="icon" type="image/webp" href="https://cdn.csgoskins.gg/public/uih/tournaments/aHR0cHM6Ly9jc2dvc2tpbnMuZ2cvYnVpbGQvYXNzZXRzLzIwMjUtc3RhcmxhZGRlci1idWRhcGVzdC1ESnM3aFlfdi5wbmc-/auto/auto/85/notrim/eec62b9fb416cc1a7052736b519b8499.webp">
-<meta property="og:title" content="Budapest 2025 Sticker Investment Tracker">
-<meta property="og:description" content="Live tracking of CS2 Budapest 2025 Major sticker investments - updated 6x daily">
+<meta property="og:title" content="${config.siteTitle}">
+<meta property="og:description" content="Live tracking of CS2 ${config.event} Major sticker investments - updated 6x daily">
 <meta property="og:image" content="https://cdn.csgoskins.gg/public/uih/tournaments/aHR0cHM6Ly9jc2dvc2tpbnMuZ2cvYnVpbGQvYXNzZXRzLzIwMjUtc3RhcmxhZGRlci1idWRhcGVzdC1ESnM3aFlfdi5wbmc-/auto/auto/85/notrim/eec62b9fb416cc1a7052736b519b8499.webp">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -1795,59 +2382,162 @@ async function main() {
   /* Details/Summary Steam style */
   details summary { list-style: none; }
   details summary::-webkit-details-marker { display: none; }
+
+  /* Weekly Analysis Tabs */
+  .week-tabs { display: flex; gap: 0; overflow-x: auto; margin-bottom: 20px; border-bottom: 1px solid rgba(0,0,0,0.3); scrollbar-width: thin; scrollbar-color: #2a475e transparent; }
+  .week-tabs::-webkit-scrollbar { height: 4px; }
+  .week-tabs::-webkit-scrollbar-thumb { background: #2a475e; border-radius: 2px; }
+  .week-tab { background: none; border: none; color: #8f98a0; padding: 10px 18px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .week-tab:hover { color: #fff; background: rgba(255,255,255,0.03); }
+  .week-tab.active { color: #67c1f5; border-bottom-color: #67c1f5; background: rgba(103,193,245,0.05); }
+  .week-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+  @media (max-width: 900px) { .week-panels { grid-template-columns: 1fr; } }
+  .week-comparison { background: rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.3); border-radius: 4px; padding: 16px 20px; margin-bottom: 24px; }
+  .week-comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .week-stat { text-align: center; }
+  .week-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #8f98a0; font-weight: 600; }
+  .week-stat-value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+  /* Overview Section */
+  .overview-section { margin-bottom: 32px; }
+  .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .overview-card { background: rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.3); border-radius: 4px; padding: 24px 28px; position: relative; overflow: hidden; }
+  .overview-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .overview-card h4 { color: #fff; font-size: 16px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .overview-card p { color: #acb2b8; font-size: 15px; line-height: 1.6; }
+  .overview-card .big-number { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
+  .overview-card.card-blue::before { background: linear-gradient(90deg, #67c1f5, transparent); }
+  .overview-card.card-green::before { background: linear-gradient(90deg, #22c55e, transparent); }
+  .overview-card.card-amber::before { background: linear-gradient(90deg, #f59e0b, transparent); }
+  .overview-card.card-red::before { background: linear-gradient(90deg, #ef4444, transparent); }
+  .overview-card.card-purple::before { background: linear-gradient(90deg, #8b5cf6, transparent); }
+  .overview-card.card-gold::before { background: linear-gradient(90deg, #ffd700, transparent); }
+  .quality-explainer { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .quality-chip { padding: 6px 14px; border-radius: 4px; font-size: 12px; font-weight: 700; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
 <nav class="sticky-nav" id="stickyNav">
+  <a href="#overview-section">Overview</a>
   <a href="#summary-section">Summary</a>
   <a href="#charts-section">Charts</a>
   <a href="#quality-section">Quality</a>
   <a href="#leaderboard-section">Leaderboards</a>
-  <a href="#market-section">Market Activity</a>
+  <a href="#market-section">Market</a>
+  <a href="#thirdparty-section">Skinport</a>
   <a href="#history-section">History</a>
+  <a href="#weekly-section">Weekly</a>
   <a href="#predictions-section">Predictions</a>
+  <a href="#altinvest-section">vs Assets</a>
+  <a href="#capsule-section">Capsules</a>
   <a href="#browse-section">Browse</a>
   <a href="#inventory-section">Inventory</a>
 </nav>
 
+<div style="background:#0e1a26;border-bottom:1px solid #1b2838;padding:4px 24px;display:flex;align-items:center;gap:16px;font-size:11px;color:#8f98a0;flex-wrap:wrap;">
+  <span style="color:#67c1f5;font-weight:600;">FX Rates:</span>
+  <span>1 AUD = <span style="color:#fff">$${exchangeRates.audToUsd.toFixed(4)}</span> USD</span>
+  <span>1 AUD = <span style="color:#fff">€${exchangeRates.audToEur.toFixed(4)}</span> EUR</span>
+  <span>1 AUD = <span style="color:#fff">£${exchangeRates.audToGbp.toFixed(4)}</span> GBP</span>
+  <span style="color:#2a475e">|</span>
+  <span style="color:#f59e0b;font-weight:600;">Crypto:</span>
+  ${exchangeRates.btcUsd > 0 ? '<span>BTC = <span style="color:#f7931a">$' + exchangeRates.btcUsd.toLocaleString() + '</span> USD</span>' : ''}
+  ${exchangeRates.ethUsd > 0 ? '<span>ETH = <span style="color:#627eea">$' + exchangeRates.ethUsd.toLocaleString() + '</span> USD</span>' : ''}
+  ${exchangeRates.solUsd > 0 ? '<span>SOL = <span style="color:#9945ff">$' + exchangeRates.solUsd.toLocaleString() + '</span> USD</span>' : ''}
+  <span style="color:#2a475e">|</span>
+  <span>Portfolio: <span style="color:#fff">$${(grandValue * exchangeRates.audToUsd).toFixed(2)}</span> USD / <span style="color:#fff">€${(grandValue * exchangeRates.audToEur).toFixed(2)}</span> EUR${exchangeRates.btcUsd > 0 ? ' / <span style="color:#f7931a">' + (grandValue * exchangeRates.audToUsd / exchangeRates.btcUsd).toFixed(6) + '</span> BTC' : ''}</span>
+</div>
+
 <div class="steam-header">
   <div class="steam-header-inner">
-    <a href="https://steamcommunity.com/id/oldm8clint" target="_blank"><img class="steam-avatar" src="https://avatars.akamai.steamstatic.net/596b07e4b11e4821c9a695accd501f7180bc5f99_full.jpg" alt="clint"></a>
+    <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank"><img class="steam-avatar" src="${config.steamProfile.avatarUrl}" alt="${config.steamProfile.displayName}"></a>
     <div class="steam-profile-info">
-      <div class="steam-profile-name"><a href="https://steamcommunity.com/id/oldm8clint" target="_blank">clint</a></div>
-      <div class="steam-profile-sub">Budapest 2025 Major Sticker Portfolio &middot; Last updated ${todayFull} &middot; <a href="https://steamcommunity.com/id/oldm8clint/inventory/" target="_blank">${history.entries.length} snapshot${history.entries.length !== 1 ? 's' : ''}</a></div>
+      <div class="steam-profile-name"><a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank">${config.steamProfile.displayName}</a></div>
+      <div class="steam-profile-sub">${config.event} Major Sticker Portfolio &middot; Last updated ${todayFull} &middot; <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}/inventory/" target="_blank">${history.entries.length} snapshot${history.entries.length !== 1 ? 's' : ''}</a></div>
     </div>
     <div class="steam-profile-links">
-      <a class="steam-link-btn" href="https://steamcommunity.com/id/oldm8clint/inventory/" target="_blank">Inventory</a>
-      <a class="steam-link-btn" href="https://steamcommunity.com/id/oldm8clint" target="_blank">Profile</a>
+      <a class="steam-link-btn" href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}/inventory/" target="_blank">Inventory</a>
+      <a class="steam-link-btn" href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank">Profile</a>
       <button class="steam-link-btn" onclick="downloadCSV()" style="cursor:pointer">Download CSV</button>
     </div>
   </div>
 </div>
 
+<!-- Create Your Own Tracker Banner -->
+<div id="createBanner" style="background:linear-gradient(135deg,#1a2a3a 0%,#1b2838 100%);border:1px solid #2a475e;border-radius:0;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div style="flex:1;min-width:200px;">
+    <div style="color:#fff;font-weight:600;font-size:15px;margin-bottom:4px;">Track Your Own Sticker Portfolio</div>
+    <div style="color:#8f98a0;font-size:13px;">Fork this project, import your Steam inventory, and deploy your own tracker in under 5 minutes.</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <a href="https://github.com/${config.steamProfile.vanityUrl}/budapest2025#create-your-own-tracker" target="_blank" style="background:linear-gradient(135deg,#1a9fff,#0d6efd);color:#fff;padding:8px 20px;border-radius:3px;font-weight:600;font-size:13px;text-decoration:none;white-space:nowrap;border:none;">Create Your Own</a>
+    <button onclick="document.getElementById('createBanner').style.display='none';localStorage.setItem('hideBanner','1')" style="background:none;border:none;color:#555;font-size:18px;cursor:pointer;padding:4px 8px;line-height:1;" title="Dismiss">&times;</button>
+  </div>
+</div>
+<script>if(localStorage.getItem('hideBanner')==='1')document.getElementById('createBanner').style.display='none';</script>
+
 <div class="page-content">
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:4px;">
   <div>
-    <h1>Budapest 2025 Major Sticker Investments</h1>
-<div class="subtitle">All prices AUD &middot; Buy price $0.35/ea &middot; <span>${data.length} items, ${grandQty} stickers</span></div>
+    <h1>${config.event} Major Sticker Investments</h1>
+<div class="subtitle">All prices ${config.currency} &middot; Buy price ${config.currencySymbol}${config.costPerUnit}/ea &middot; <span>${data.length} items, ${grandQty} stickers</span> &middot; Prices last updated <strong style="color:#67c1f5">${todayFull}</strong></div>
   </div>
 </div>
 
 <div id="summary-section"></div>
 <div class="summary">
   <div class="card"><div class="card-label">Stickers Held</div><div class="card-value neutral">${grandQty.toLocaleString()}</div><div class="card-sub">${data.length} unique line items</div></div>
-  <div class="card"><div class="card-label">Total Invested</div><div class="card-value" style="color:#60a5fa">$${grandCost.toFixed(2)}</div><div class="card-sub">@ $0.35 each</div></div>
+  <div class="card"><div class="card-label">Total Invested</div><div class="card-value" style="color:#60a5fa">${config.currencySymbol}${grandCost.toFixed(2)}</div><div class="card-sub">@ ${config.currencySymbol}${config.costPerUnit} each</div></div>
   <div class="card"><div class="card-label">Current Value</div><div class="card-value ${grandValue >= grandCost ? 'positive' : 'negative'}">$${grandValue.toFixed(2)}</div><div class="card-sub">Avg $${avgStickerValue.toFixed(3)}/sticker</div></div>
   <div class="card"><div class="card-label">Profit / Loss</div><div class="card-value ${grandPL >= 0 ? 'positive' : 'negative'}">${grandPL >= 0 ? '+' : ''}$${grandPL.toFixed(2)}</div><div class="card-sub">${grandROI}% return</div></div>
   <div class="card"><div class="card-label">Break-Even Progress</div><div class="card-value ${breakEvenPct >= 100 ? 'positive' : 'negative'}">${breakEvenPct.toFixed(1)}%</div><div class="card-sub">${profitableCount} of ${data.length} items profitable</div></div>
   <div class="card"><div class="card-label">Est. Time to ROI</div><div class="card-value ${roiEstimate === 'Achieved!' ? 'positive' : roiEstimate === 'Declining' ? 'negative' : 'dimmed'}" style="font-size:${roiEstimate.length > 10 ? '18' : '26'}px">${roiEstimate}</div><div class="card-sub">Based on price trend</div></div>
   <div class="card"><div class="card-label">Best Performer</div><div class="card-value" style="font-size:16px;color:#22c55e">${bestPerformer ? bestPerformer.name : '-'}</div><div class="card-sub">${bestPerformer ? bestPerformer.quality + ' @ $' + bestPerformer.currentPrice.toFixed(2) : ''}</div></div>
   <div class="card"><div class="card-label">Worst Performer</div><div class="card-value" style="font-size:16px;color:#ef4444">${worstPerformer ? worstPerformer.name : '-'}</div><div class="card-sub">${worstPerformer ? worstPerformer.quality + ' @ $' + worstPerformer.currentPrice.toFixed(2) : ''}</div></div>
-  <div class="card"><div class="card-label">Profitable Items</div><div class="card-value ${parseFloat(profitablePct) >= 50 ? 'positive' : 'negative'}">${profitablePct}%</div><div class="card-sub">${profitableCount} of ${data.length} above $0.35</div></div>
+  <div class="card"><div class="card-label">Profitable Items</div><div class="card-value ${parseFloat(profitablePct) >= 50 ? 'positive' : 'negative'}">${profitablePct}%</div><div class="card-sub">${profitableCount} of ${data.length} above ${config.currencySymbol}${config.costPerUnit}</div></div>
   <div class="card"><div class="card-label">Best Quality Tier</div><div class="card-value neutral" style="font-size:18px">${bestQualityTier ? bestQualityTier[0] : '-'}</div><div class="card-sub">${bestQualityTier ? ((bestQualityTier[1].value - bestQualityTier[1].cost) / bestQualityTier[1].cost * 100).toFixed(1) + '% ROI' : ''}</div></div>
   <div class="card"><div class="card-label">Diversity Score</div><div class="card-value dimmed">${diversityScore}%</div><div class="card-sub">${uniqueNames.size} unique stickers across ${data.length} items</div></div>
+</div>
+
+<div id="overview-section" class="overview-section">
+<h3>Overview</h3>
+<div class="overview-grid">
+  <div class="overview-card card-blue">
+    <h4>What is this?</h4>
+    <p>This tracks <strong>${grandQty.toLocaleString()} CS2 ${config.event} Major stickers</strong> purchased at ${config.currency}${config.currencySymbol}${config.costPerUnit} each from capsule openings. Total investment: <strong>${config.currency}${config.currencySymbol}${grandCost.toFixed(2)}</strong>. The tracker fetches live prices from the Steam Market 6 times daily and monitors performance over time.</p>
+  </div>
+  <div class="overview-card ${grandPL >= 0 ? 'card-green' : 'card-red'}">
+    <h4>Current Status</h4>
+    <div class="big-number ${grandPL >= 0 ? 'positive' : 'negative'}">${grandPL >= 0 ? '+' : ''}$${grandPL.toFixed(2)}</div>
+    <p>Your stickers are worth <strong>A$${grandValue.toFixed(2)}</strong> total. You've ${grandPL >= 0 ? 'gained' : 'lost'} <strong>${Math.abs(parseFloat(grandROI)).toFixed(1)}%</strong> on your investment so far. ${breakEvenPct >= 100 ? 'You\'re above break-even!' : `You need prices to rise ${(100 - breakEvenPct).toFixed(0)}% more to break even.`}</p>
+  </div>
+  <div class="overview-card card-purple">
+    <h4>Quality Tiers Explained</h4>
+    <p>Stickers come in different rarities. Rarer = more valuable, fewer in circulation.</p>
+    <div class="quality-explainer">
+      <span class="quality-chip" style="background:rgba(176,195,217,0.15);color:#b0c3d9">Normal (${(pctNormal*100).toFixed(0)}%)</span>
+      <span class="quality-chip" style="background:rgba(75,105,255,0.15);color:#4b69ff">Embroidered (${(pctEmbroidered*100).toFixed(0)}%)</span>
+      <span class="quality-chip" style="background:rgba(136,71,255,0.15);color:#8847ff">Holo (${(pctHolo*100).toFixed(0)}%)</span>
+      <span class="quality-chip" style="background:rgba(255,215,0,0.15);color:#ffd700">Gold (${(pctGold*100).toFixed(0)}%)</span>
+    </div>
+    <p style="margin-top:8px;font-size:13px;">Normal stickers avg A$${qualityTotals['Normal'] ? (qualityTotals['Normal'].value / qualityTotals['Normal'].qty).toFixed(3) : '0.03'} each. Gold stickers can be worth A$10-50+ each. Historically, <strong>Gold and Holo</strong> tiers deliver the highest ROI.</p>
+  </div>
+  <div class="overview-card card-amber">
+    <h4>Market Health</h4>
+    <p><strong>${totalVolume24h.toLocaleString()} stickers</strong> traded in the last 24 hours across all tracked items. <strong>${profitableCount} of ${data.length}</strong> sticker types are currently priced above your ${config.currency}${config.currencySymbol}${config.costPerUnit} buy price. ${strongCount > data.length * 0.3 ? 'Good trading volume indicates healthy price discovery.' : 'Low volume means prices may be volatile.'}</p>
+  </div>
+  <div class="overview-card card-gold">
+    <h4>Prediction</h4>
+    <p>Based on ${projections.length} past CS majors, sticker prices typically appreciate <strong>6-24 months after capsule removal</strong>. Budapest stickers are ~${budapestMonths} months old. ${budapestMonths <= 6 ? 'Prices are usually still declining at this stage — this is the accumulation window.' : budapestMonths <= 18 ? 'You\'re entering the early appreciation phase.' : 'Historical data suggests meaningful gains should be appearing now.'}${breakEvenMonths > 0 ? ` Estimated break-even: <strong>${breakEvenMonths < 12 ? breakEvenMonths + ' months' : (breakEvenMonths/12).toFixed(1) + ' years'}</strong>.` : ''}</p>
+  </div>
+  <div class="overview-card card-blue">
+    <h4>What Should I Do?</h4>
+    <p style="font-size:18px;font-weight:700;color:${signalColor};margin-bottom:8px;">${investmentSignal}</p>
+    <p>${investmentSignal === 'BUY MORE' ? 'Prices are at historically low levels. If you believe in the long-term CS2 sticker market, this is a good entry point.' : investmentSignal === 'HOLD' ? 'Prices are stabilising. Major sticker prices typically recover 6-12 months after a major. Patience is key — don\'t panic sell.' : 'Market conditions are unfavourable right now. Wait for better entry signals before adding more.'} Investment score: <strong>${investmentScore}/10</strong>.</p>
+  </div>
+</div>
 </div>
 
 <h3 id="signal-section">Investment Signal</h3>
@@ -1900,6 +2590,7 @@ async function main() {
 </div>
 
 <h3>Break-Even Progress</h3>
+<p style="color:#888;font-size:12px;margin-bottom:8px;">How close your total portfolio value is to matching your total investment cost. 100% = you've broken even. Above 100% = profit.</p>
 <div class="progress-section">
   <div class="progress-bar-outer">
     <div class="progress-bar-inner" style="width:${Math.min(breakEvenPct, 100)}%;background:linear-gradient(90deg,${breakEvenPct >= 100 ? '#22c55e,#16a34a' : breakEvenPct >= 70 ? '#f59e0b,#d97706' : '#ef4444,#dc2626'});">
@@ -1925,7 +2616,7 @@ ${featured.map((r, i) => {
     <a href="${r.marketUrl}" target="_blank"><img src="${r.imageUrl}" alt="${r.name}" loading="lazy"></a>
     <div class="featured-name">${r.name}</div>
     <span class="quality-badge q-${cls}" style="margin-top:6px">${r.quality}</span>
-    <div class="featured-price ${r.currentPrice >= 0.35 ? 'positive' : 'negative'}">$${r.currentPrice.toFixed(2)}</div>
+    <div class="featured-price ${r.currentPrice >= config.costPerUnit ? 'positive' : 'negative'}">$${r.currentPrice.toFixed(2)}</div>
     <div class="featured-roi ${roiVal >= 0 ? 'positive' : 'negative'}">${roiVal >= 0 ? '+' : ''}${r.roi} ROI</div>
   </div>`;
 }).join('\n')}
@@ -1940,6 +2631,7 @@ ${portfolioHistory.length > 1 ? `
 ` : `<p class="snapshot-count">Run again on a different day to start building a price history chart.</p>`}
 
 <h3>Investment Analysis</h3>
+<p style="color:#888;font-size:12px;margin-bottom:12px;">How your investment is split across quality tiers (left) and the distribution of individual sticker prices (right). A well-diversified portfolio has exposure to premium tiers (Holo/Gold) for upside potential.</p>
 <div class="chart-row">
   <div class="chart-box">
     <h4 style="color:#fff;font-size:14px;font-weight:700;margin-bottom:12px;">Investment Allocation by Quality</h4>
@@ -1952,6 +2644,7 @@ ${portfolioHistory.length > 1 ? `
 </div>
 
 <h3>Team vs Player Stickers</h3>
+<p style="color:#888;font-size:12px;margin-bottom:12px;">Comparison of team logo stickers vs player autograph stickers. Historically, player autographs (especially star players) appreciate faster, but team stickers are more consistent.</p>
 <div class="tvp-grid">
   <div class="tvp-card">
     <h4 style="color:#60a5fa">Team Stickers</h4>
@@ -1973,36 +2666,44 @@ ${portfolioHistory.length > 1 ? `
   </div>
 </div>
 
-<h3>Sticker Slab Analysis</h3>
+<h3>Slab Sell Strategy</h3>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">Should you sell your stickers individually or encase 5 into a slab? When slab price > 5x individual price, slabbing earns more. Sorted by best slab premium first.</p>
 <div class="slab-summary">
-  <div class="card"><div class="card-label">Slabs Available</div><div class="card-value neutral">${slabsAvailable}</div><div class="card-sub">of ${uniqueSlabRows.length} variants tracked</div></div>
-  <div class="card"><div class="card-label">Avg Premium/Discount</div><div class="card-value ${avgPremium <= 0 ? 'positive' : 'negative'}">${avgPremium >= 0 ? '+' : ''}${avgPremium.toFixed(1)}%</div><div class="card-sub">vs buying 5 individual stickers</div></div>
-  <div class="card"><div class="card-label">Slabs Cheaper</div><div class="card-value positive">${slabsCheaper}</div><div class="card-sub">${slabsAvailable > 0 ? ((slabsCheaper / slabsAvailable) * 100).toFixed(0) + '% of listed slabs' : 'No data yet'}</div></div>
+  <div class="card"><div class="card-label">Slabs Tracked</div><div class="card-value neutral">${slabsAvailable}</div><div class="card-sub">of ${uniqueSlabRows.length} variants</div></div>
+  <div class="card"><div class="card-label">Avg Slab Premium</div><div class="card-value ${avgPremium > 0 ? 'positive' : 'negative'}">${avgPremium >= 0 ? '+' : ''}${avgPremium.toFixed(1)}%</div><div class="card-sub">slab price vs 5x individual</div></div>
+  <div class="card"><div class="card-label">Worth Slabbing</div><div class="card-value positive">${slabsWithPremium}</div><div class="card-sub">${slabsAvailable > 0 ? ((slabsWithPremium / slabsAvailable) * 100).toFixed(0) + '% have slab premium' : 'No data yet'}</div></div>
+  <div class="card"><div class="card-label">You Can Slab</div><div class="card-value ${slabbableItems.length > 0 ? 'positive' : 'dimmed'}">${slabbableItems.length}</div><div class="card-sub">${slabbableItems.length > 0 ? 'You hold 5+ of these, +$' + slabProfitPotential.toFixed(2) + ' extra' : 'Need 5+ of same sticker'}</div></div>
 </div>
-${slabsCheaper > 0 ? `<p style="color:#22c55e;font-size:13px;margin-bottom:16px;font-weight:600;">${slabsCheaper} out of ${slabsAvailable} slabs are cheaper than buying 5 individual stickers &mdash; consider slabs for bulk investment.</p>` : ''}
-<table class="history-table" style="max-width: 1000px;">
-<thead><tr><th>Sticker</th><th>Quality</th><th>Sticker Price</th><th>5x Price</th><th>Slab Price</th><th>Premium</th><th>Verdict</th></tr></thead>
+${slabbableItems.length > 0 ? `<p style="color:#22c55e;font-size:13px;margin-bottom:16px;font-weight:600;">${slabbableItems.length} sticker${slabbableItems.length > 1 ? 's' : ''} you hold 5+ of would earn more sold as slabs &mdash; potential extra profit: A$${slabProfitPotential.toFixed(2)}</p>` : ''}
+<table class="history-table" style="max-width: 1100px;">
+<thead><tr><th>Sticker</th><th>Quality</th><th>Held</th><th>Individual</th><th>5x Price</th><th>Slab Price</th><th>Premium</th><th>Strategy</th></tr></thead>
 <tbody>
-${uniqueSlabRows.filter(r => r.slabPrice > 0).sort((a, b) => a.premiumPct - b.premiumPct).slice(0, 30).map(r => {
+${uniqueSlabRows.filter(r => r.slabPrice > 0).sort((a, b) => b.premiumPct - a.premiumPct).slice(0, 30).map(r => {
   const qc = r.quality.toLowerCase();
   const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
   const slabDataRow = data.find(d => d.name === r.name && d.quality === r.quality);
   const slabThumb = slabDataRow?.imageUrl ? '<img src="' + getImageUrl(imageCache, slabDataRow.hashName, 64) + '" class="sticker-thumb" loading="lazy">' : '';
+  const canSlabBadge = r.canSlab ? '<span style="color:#22c55e;font-size:10px;font-weight:700;margin-left:4px">CAN SLAB</span>' : '';
   return `<tr>
     <td><div class="sticker-name-cell">${slabThumb}<span style="font-weight:500">${r.name}</span></div></td>
     <td><span class="quality-badge q-${cls}">${r.quality}</span></td>
+    <td style="font-weight:600">${r.heldQty}${canSlabBadge}</td>
     <td>$${r.stickerPrice.toFixed(2)}</td>
     <td>$${r.fiveXPrice.toFixed(2)}</td>
-    <td>$${r.slabPrice.toFixed(2)}</td>
-    <td class="${r.premiumPct <= 0 ? 'positive' : 'negative'}">${r.premiumPct >= 0 ? '+' : ''}${r.premiumPct.toFixed(1)}%</td>
+    <td style="font-weight:600">$${r.slabPrice.toFixed(2)}</td>
+    <td class="${r.premiumPct > 0 ? 'positive' : 'negative'}" style="font-weight:700">${r.premiumPct >= 0 ? '+' : ''}${r.premiumPct.toFixed(1)}%</td>
     <td style="color:${r.verdictColor};font-weight:600">${r.verdict}</td>
   </tr>`;
 }).join('\n')}
 </tbody>
 </table>
-${uniqueSlabRows.filter(r => r.slabPrice > 0).length > 30 ? `<p style="color:#555;font-size:11px;margin-top:8px;">Showing top 30 slab deals. ${uniqueSlabRows.filter(r => r.slabPrice > 0).length - 30} more slabs tracked.</p>` : ''}
+${uniqueSlabRows.filter(r => r.slabPrice > 0).length > 30 ? `<p style="color:#555;font-size:11px;margin-top:8px;">Showing top 30 by slab premium. ${uniqueSlabRows.filter(r => r.slabPrice > 0).length - 30} more tracked.</p>` : ''}
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Slab = 5 identical stickers encased together. "CAN SLAB" means you hold 5+ of that sticker. Premium shows how much more (or less) the slab sells for vs 5 individual sales. Positive = slab earns more.</p>
 
 <h3 id="quality-section">Quality Breakdown</h3>
+<div style="background:rgba(75,105,255,0.05);border:1px solid rgba(75,105,255,0.15);border-radius:4px;padding:14px 18px;margin-bottom:16px;font-size:13px;color:#acb2b8;">
+  <strong style="color:#4b69ff;">About Embroidered Stickers:</strong> Embroidered is a <strong>new quality tier introduced in ${config.event}</strong>, replacing the previous Foil finish. It sits in the Remarkable (purple) rarity slot with ~16% drop rate. Holo was promoted from Remarkable to Exotic (~3.2% drop rate), making Holos significantly rarer than before. Community reception is mixed &mdash; the 3D embroidered effect looks stunning in menus but is harder to see when applied to weapons. As the first major with this tier, ${config.event} Embroidered stickers could become a unique collectible if Valve changes the format again. <strong>Drop rates:</strong> Paper ~80% | Embroidered ~16% | Holo ~3.2% | Gold ~0.64%
+</div>
 <div class="quality-summary">
 ${Object.entries(qualityTotals).sort((a,b) => b[1].value - a[1].value).map(([q, t]) => {
   const pl = t.value - t.cost;
@@ -2036,7 +2737,7 @@ ${Object.entries(qualityTotals).sort((a,b) => b[1].value - a[1].value).map(([q, 
       const qc = r.quality.toLowerCase();
       const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
       const dist = distToBreakEven(r.currentPrice);
-      const distCls = r.currentPrice >= 0.35 ? 'dist-pos' : 'dist-neg';
+      const distCls = r.currentPrice >= config.costPerUnit ? 'dist-pos' : 'dist-neg';
       const thumb = r.imageUrl ? `<img src="${getImageUrl(imageCache, r.hashName, 64)}" class="sticker-thumb" loading="lazy">` : '';
       return `<tr><td><div class="sticker-name-cell">${thumb}<a href="${r.marketUrl}" target="_blank">${r.name}</a></div></td><td><span class="quality-badge q-${cls}">${r.quality}</span></td><td>${r.qty}</td><td>$${r.currentPrice.toFixed(2)}</td><td>$${r.totalValue.toFixed(2)}</td><td><span class="dist-badge ${distCls}">${dist}</span></td></tr>`;
     }).join('\n')}
@@ -2052,7 +2753,7 @@ ${Object.entries(qualityTotals).sort((a,b) => b[1].value - a[1].value).map(([q, 
       const qc = r.quality.toLowerCase();
       const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
       const dist = distToBreakEven(r.currentPrice);
-      const distCls = r.currentPrice >= 0.35 ? 'dist-pos' : 'dist-neg';
+      const distCls = r.currentPrice >= config.costPerUnit ? 'dist-pos' : 'dist-neg';
       const thumb = r.imageUrl ? `<img src="${getImageUrl(imageCache, r.hashName, 64)}" class="sticker-thumb" loading="lazy">` : '';
       return `<tr><td><div class="sticker-name-cell">${thumb}<a href="${r.marketUrl}" target="_blank">${r.name}</a></div></td><td><span class="quality-badge q-${cls}">${r.quality}</span></td><td>${r.qty}</td><td>$${r.currentPrice.toFixed(2)}</td><td class="${parseFloat(r.roi) >= 0 ? 'positive' : 'negative'}">${r.roi}</td><td><span class="dist-badge ${distCls}">${dist}</span></td></tr>`;
     }).join('\n')}
@@ -2066,7 +2767,8 @@ ${history.entries.length >= 2 ? `
 <p style="color:#888;font-size:13px;margin-bottom:16px;">Players/teams appearing here consistently are ones to watch for future majors. Based on ${history.entries.length} snapshots.</p>
 <div class="split-tables">
   <div class="sub-table">
-    <h4 style="color:#22c55e">Top 10 Consistent Risers</h4>
+    <h4 style="color:#22c55e">Top ${topTrends.length} Consistent Risers</h4>
+    <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Appearances</th><th>First Price</th><th>Latest Price</th><th>Change</th><th>Trend</th></tr></thead>
     <tbody>
@@ -2078,9 +2780,11 @@ ${history.entries.length >= 2 ? `
     }).join('\n')}
     </tbody>
     </table>
+    </div>
   </div>
   <div class="sub-table">
-    <h4 style="color:#ef4444">Bottom 10 Watch List</h4>
+    <h4 style="color:#ef4444">Bottom ${bottomTrends.length} Watch List</h4>
+    <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Appearances</th><th>First Price</th><th>Latest Price</th><th>Change</th><th>Trend</th></tr></thead>
     <tbody>
@@ -2092,11 +2796,13 @@ ${history.entries.length >= 2 ? `
     }).join('\n')}
     </tbody>
     </table>
+    </div>
   </div>
 </div>
 ` : ''}
 
 <h3 id="market-section">Market Activity</h3>
+<p style="color:#888;font-size:12px;margin-bottom:12px;">Live trading data from the Steam Market. Higher volume = more reliable prices. "Price Strength" measures how actively a sticker is being traded — strong pricing means the listed price reflects real demand.</p>
 <div class="market-summary">
   <div class="card"><div class="card-label">24h Volume</div><div class="card-value neutral counter-value" data-target="${totalVolume24h}">${totalVolume24h.toLocaleString()}</div><div class="card-sub">Total sales across all stickers</div></div>
   <div class="card"><div class="card-label">Avg Volume/Sticker</div><div class="card-value dimmed counter-value" data-target="${Math.round(avgVolume)}">${Math.round(avgVolume).toLocaleString()}</div><div class="card-sub">Average 24h sales per sticker</div></div>
@@ -2126,6 +2832,7 @@ ${(() => {
 <div class="split-tables">
   <div class="sub-table">
     <h4 style="color:#22c55e">Most Traded (24h) - Reliable Prices</h4>
+    <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
     <tbody>
@@ -2137,9 +2844,11 @@ ${(() => {
     }).join('\n')}
     </tbody>
     </table>
+    </div>
   </div>
   <div class="sub-table">
     <h4 style="color:#f97316">Least Traded (24h) - Fragile Prices</h4>
+    <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
     <tbody>
@@ -2151,25 +2860,103 @@ ${(() => {
     }).join('\n')}
     </tbody>
     </table>
+    </div>
   </div>
 </div>
 
 <div class="sub-table" style="margin-bottom:32px;">
-  <h4 style="color:#60a5fa">Most Listed - High Supply (Downward Pressure)</h4>
+  <h4 style="color:#60a5fa">Most Listed - High Supply (${mostListed.length} items)</h4>
+  <p style="color:#888;font-size:12px;margin-bottom:8px;">Stickers with the most active sell listings on the Steam Market. High supply can put downward pressure on prices. If no items appear, the Steam API may not be returning listing counts for Budapest stickers yet.</p>
+  <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
   <table>
   <thead><tr><th>Sticker</th><th>Quality</th><th>Listings</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
   <tbody>
-  ${mostListed.map(r => {
+  ${mostListed.length > 0 ? mostListed.map(r => {
     const qc = r.quality.toLowerCase();
     const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
     const thumb = r.imageUrl ? '<img src="' + getImageUrl(imageCache, r.hashName, 64) + '" class="sticker-thumb" loading="lazy">' : '';
     return '<tr><td><div class="sticker-name-cell">' + thumb + '<span class="sticker-modal-trigger" data-idx="' + data.indexOf(r) + '" style="cursor:pointer;font-weight:500">' + r.name + '</span></div></td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td style="font-weight:700;color:#60a5fa">' + r.listings.toLocaleString() + '</td><td>' + r.volume.toLocaleString() + '</td><td>$' + r.currentPrice.toFixed(2) + '</td><td>' + strengthBarsHtml(r.priceStrength) + '</td></tr>';
-  }).join('\n')}
+  }).join('\n') : '<tr><td colspan="6" style="text-align:center;color:#555;padding:20px;">No listing data available yet. The Steam API may not return listing counts for newer items until they have sufficient market activity.</td></tr>'}
   </tbody>
   </table>
+  </div>
 </div>
 
-<h3 id="history-section">Snapshot History</h3>
+<h3 id="thirdparty-section">Third-Party Market Data (Skinport)</h3>
+<p style="color:#888;font-size:12px;margin-bottom:12px;">Sales data from <a href="https://skinport.com" target="_blank">Skinport</a>, a third-party CS2 marketplace. Skinport prices are ~15% lower than Steam (no seller fee), so all Skinport prices shown include a <strong>+15% markup</strong> for fair Steam parity comparison. Volume data shows additional market demand beyond Steam. Updated every price fetch.</p>
+<div class="market-summary">
+  <div class="card"><div class="card-label">Skinport Listings</div><div class="card-value neutral">${skinportTotalListings.toLocaleString()}</div><div class="card-sub">Active sell listings</div></div>
+  <div class="card"><div class="card-label">7-Day Volume</div><div class="card-value" style="color:#60a5fa">${skinportTotal7dVol.toLocaleString()}</div><div class="card-sub">Sales in last 7 days</div></div>
+  <div class="card"><div class="card-label">30-Day Volume</div><div class="card-value" style="color:#c084fc">${skinportTotal30dVol.toLocaleString()}</div><div class="card-sub">Sales in last 30 days</div></div>
+  <div class="card"><div class="card-label">Combined Volume</div><div class="card-value positive">${(totalVolume24h + skinportTotal7dVol).toLocaleString()}</div><div class="card-sub">Steam 24h + Skinport 7d</div></div>
+</div>
+${skinportTopByVol.length > 0 ? `
+<div class="split-tables">
+  <div class="sub-table">
+    <h4 style="color:#60a5fa">Most Traded on Skinport (7 days)</h4>
+    <div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <table>
+    <thead><tr><th>Sticker</th><th>Quality</th><th>7d Vol</th><th>30d Vol</th><th>Steam Price</th></tr></thead>
+    <tbody>
+    ${skinportTopByVol.map(r => {
+      const qc = r.quality.toLowerCase();
+      const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+      return '<tr><td>' + r.name + '</td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td style="font-weight:700;color:#60a5fa">' + r.skinportVol7d + '</td><td>' + r.skinportVol30d + '</td><td>$' + r.currentPrice.toFixed(2) + '</td></tr>';
+    }).join('\n')}
+    </tbody>
+    </table>
+    </div>
+  </div>
+  <div class="sub-table">
+    <h4 style="color:#c084fc">Most Listed on Skinport</h4>
+    <div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <table>
+    <thead><tr><th>Sticker</th><th>Quality</th><th>Listings</th><th>Steam Price</th></tr></thead>
+    <tbody>
+    ${skinportTopByListings.map(r => {
+      const qc = r.quality.toLowerCase();
+      const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+      return '<tr><td>' + r.name + '</td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td style="font-weight:700;color:#c084fc">' + r.skinportListings + '</td><td>$' + r.currentPrice.toFixed(2) + '</td></tr>';
+    }).join('\n')}
+    </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+` : '<p style="color:#555;text-align:center;padding:20px;">No Skinport data available yet. Data will appear on the next price update.</p>'}
+
+${priceComparisonItems.length > 0 ? `
+<h4 style="color:#fff;margin-top:24px;margin-bottom:12px;">Steam vs Skinport Price Comparison</h4>
+<p style="color:#888;font-size:12px;margin-bottom:12px;">Skinport prices have been adjusted +15% to account for Steam's seller fee. A positive difference means Skinport (+15%) is <span style="color:#ef4444">more expensive</span>; negative means Skinport (+15%) is <span style="color:#22c55e">cheaper</span>.</p>
+<div class="market-summary">
+  <div class="card"><div class="card-label">Items Compared</div><div class="card-value neutral">${priceComparisonItems.length}</div><div class="card-sub">Have both Steam & SP prices</div></div>
+  <div class="card"><div class="card-label">Avg Steam Price</div><div class="card-value" style="color:#67c1f5">$${avgSteamPrice.toFixed(3)}</div><div class="card-sub">AUD lowest listing</div></div>
+  <div class="card"><div class="card-label">Avg SP Price (+15%)</div><div class="card-value" style="color:#c084fc">$${avgSkinportAdj.toFixed(3)}</div><div class="card-sub">USD min + 15% markup</div></div>
+  <div class="card"><div class="card-label">Cheaper On</div><div class="card-value" style="color:#22c55e">${steamCheaperCount > skinportCheaperCount ? 'Steam (' + steamCheaperCount + ')' : skinportCheaperCount > steamCheaperCount ? 'Skinport (' + skinportCheaperCount + ')' : 'Even'}</div><div class="card-sub">Steam: ${steamCheaperCount} | SP: ${skinportCheaperCount}</div></div>
+</div>
+<div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<table>
+<thead><tr><th>Sticker</th><th>Quality</th><th>Steam Price</th><th>SP Price (+15%)</th><th>Difference</th><th>SP 7d Vol</th><th>Steam Vol</th></tr></thead>
+<tbody>
+${topPriceDiffs.map(r => {
+  const qc = r.quality.toLowerCase();
+  const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+  const diffColor = r.diff > 0 ? '#ef4444' : r.diff < 0 ? '#22c55e' : '#888';
+  const diffSign = r.diff > 0 ? '+' : '';
+  return '<tr><td>' + r.name + '</td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td>' +
+    '<td style="color:#67c1f5">$' + r.currentPrice.toFixed(3) + '</td>' +
+    '<td style="color:#c084fc">$' + r.skinportPriceAdj.toFixed(3) + '</td>' +
+    '<td style="color:' + diffColor + ';font-weight:700">' + diffSign + r.diffPct.toFixed(1) + '%</td>' +
+    '<td>' + r.skinportVol7d + '</td>' +
+    '<td>' + r.volume + '</td></tr>';
+}).join('\n')}
+</tbody>
+</table>
+</div>
+` : ''}
+
+<h3 id="history-section">Snapshot History (${history.entries.length} snapshots)</h3>
+<p style="color:#888;font-size:12px;margin-bottom:12px;">Every time prices are fetched, a snapshot is saved. Charts show day-to-day changes and cumulative P/L. The table includes <span style="color:#c084fc">predicted value</span> at each date (based on weighted major projections) vs <span style="color:#67c1f5">actual value</span> — showing how well the prediction model tracks reality.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px;">
 <div class="chart-container">
   <h4 style="color:#fff;font-size:14px;margin-bottom:12px;">Value Change Per Snapshot</h4>
@@ -2180,37 +2967,88 @@ ${(() => {
   <canvas id="cumulativePLChart"></canvas>
 </div>
 </div>
-<table class="history-table" style="max-width: 700px;">
-<thead><tr><th>Date</th><th>Portfolio Value</th><th>P/L vs Cost</th><th>ROI</th><th>Day Change</th></tr></thead>
+<details open>
+<summary style="cursor:pointer;color:#67c1f5;font-weight:600;padding:8px 0;user-select:none;">Snapshot Details (${history.entries.length} entries) — click to collapse</summary>
+<div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<table class="history-table" style="max-width: 1000px;">
+<thead style="position:sticky;top:0;background:#171a21;z-index:1;"><tr><th>Date</th><th>Actual Value</th><th title="Predicted value based on weighted historical major performance at this age">Predicted</th><th>Pred Accuracy</th><th>P/L vs Cost</th><th>ROI</th><th>Day Change</th><th>Avg Sticker</th></tr></thead>
 <tbody>
-${[...history.entries].reverse().map((e, i, arr) => {
-  const pl = e.totalValue - e.totalCost;
-  const roi = ((pl / e.totalCost) * 100).toFixed(1);
-  const prev = arr[i + 1];
-  const change = prev ? e.totalValue - prev.totalValue : 0;
-  return `<tr>
-    <td style="font-weight:600">${e.date}</td>
-    <td>$${e.totalValue.toFixed(2)}</td>
-    <td class="${pl >= 0 ? 'positive' : 'negative'}">${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}</td>
-    <td class="${pl >= 0 ? 'positive' : 'negative'}">${roi}%</td>
-    <td class="${change >= 0 ? 'positive' : 'negative'}">${prev ? (change >= 0 ? '+' : '') + '$' + change.toFixed(2) : '-'}</td>
-  </tr>`;
-}).join('\n')}
+${(() => {
+  const firstDate = history.entries.length > 0 ? new Date(history.entries[0].date.slice(0, 10)) : new Date();
+  return [...history.entries].reverse().map((e, i, arr) => {
+    const pl = e.totalValue - e.totalCost;
+    const roi = ((pl / e.totalCost) * 100).toFixed(1);
+    const prev = arr[i + 1];
+    const change = prev ? e.totalValue - prev.totalValue : 0;
+    const snapshotDate = new Date(e.date.slice(0, 10));
+    const monthsIn = Math.max(0, (snapshotDate.getTime() - firstDate.getTime()) / (30.44 * 86400000));
+    // Find closest time projection
+    let predictedROI = 0;
+    let closestDist = Infinity;
+    for (const tp of timeProjections) {
+      const dist = Math.abs(tp.months - monthsIn);
+      if (dist < closestDist) { closestDist = dist; predictedROI = tp.avgROI; }
+    }
+    const predictedValue = e.totalCost * (1 + predictedROI / 100);
+    const accuracyPct = predictedValue > 0 ? ((e.totalValue / predictedValue) * 100).toFixed(0) : '-';
+    const avgSticker = e.totalValue / grandQty;
+    return '<tr>' +
+      '<td style="font-weight:600">' + e.date + '</td>' +
+      '<td style="color:#67c1f5;font-weight:600">$' + e.totalValue.toFixed(2) + '</td>' +
+      '<td style="color:#c084fc">$' + predictedValue.toFixed(2) + '</td>' +
+      '<td style="color:' + (Math.abs(parseFloat(accuracyPct) - 100) < 10 ? '#22c55e' : Math.abs(parseFloat(accuracyPct) - 100) < 25 ? '#f59e0b' : '#ef4444') + '">' + accuracyPct + '%</td>' +
+      '<td class="' + (pl >= 0 ? 'positive' : 'negative') + '">' + (pl >= 0 ? '+' : '') + '$' + pl.toFixed(2) + '</td>' +
+      '<td class="' + (pl >= 0 ? 'positive' : 'negative') + '">' + roi + '%</td>' +
+      '<td class="' + (change >= 0 ? 'positive' : 'negative') + '">' + (prev ? (change >= 0 ? '+' : '') + '$' + change.toFixed(2) : '-') + '</td>' +
+      '<td>$' + avgSticker.toFixed(4) + '</td>' +
+    '</tr>';
+  }).join('\n');
+})()}
 </tbody>
 </table>
+</div>
+</details>
+
+${weeklySnapshots.length > 0 ? `
+<h3 id="weekly-section">Weekly Analysis</h3>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">Week-by-week breakdown of your portfolio. Click a week to see price distribution and quality breakdown for that snapshot.${weeklySnapshots.length === 1 ? ' More weeks will appear as data accumulates.' : ''}</p>
+
+<div class="week-tabs" id="weekTabs">
+  ${weeklySnapshots.map((w, i) => `<button class="week-tab${i === 0 ? ' active' : ''}" onclick="selectWeek(${i})">${w.weekLabel}</button>`).join('\n  ')}
+</div>
+
+<div class="week-comparison" id="weekComparison">
+  <div class="week-comparison-grid" id="weekComparisonGrid"></div>
+</div>
+
+<div class="week-panels">
+  <div class="chart-container">
+    <h4 style="color:#fff;font-size:14px;margin-bottom:12px;">Price Distribution</h4>
+    <canvas id="weekPriceDistChart"></canvas>
+  </div>
+  <div class="chart-container">
+    <h4 style="color:#fff;font-size:14px;margin-bottom:12px;">Quality Breakdown (by Value)</h4>
+    <canvas id="weekQualityChart"></canvas>
+  </div>
+</div>
+
+<div id="weekMovers" style="margin-bottom:24px;"></div>
+` : ''}
 
 <h3>Historical Major Comparison (20 Majors: 2014-2025)</h3>
-<p style="color:#888;font-size:13px;margin-bottom:16px;">If you invested $${grandCost.toFixed(2)} AUD in stickers from each previous major (weighted by your quality mix: ${(pctNormal*100).toFixed(0)}% Normal, ${(pctEmbroidered*100).toFixed(0)}% Embroidered, ${(pctHolo*100).toFixed(0)}% Holo, ${(pctGold*100).toFixed(0)}% Gold), here's what it would be worth today. Pre-2019 majors without Gold tier are weighted across available qualities only.</p>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">If you invested $${grandCost.toFixed(2)} AUD in stickers from each previous major (weighted by your quality mix: ${(pctNormal*100).toFixed(0)}% Normal, ${(pctEmbroidered*100).toFixed(0)}% Embroidered, ${(pctHolo*100).toFixed(0)}% Holo, ${(pctGold*100).toFixed(0)}% Gold). Each major has a prediction weight (shown in <strong>Weight</strong> column) &mdash; CS2-era majors weighted 60-100%, pre-2019 majors at 1-10%. Hover over weight for context notes. <strong>Sale</strong> shows how long capsules were available at 75% off &mdash; shorter sales = less supply = better returns.</p>
 
 <div class="chart-container">
   <canvas id="historicalChart"></canvas>
 </div>
 
-<table class="history-table" style="max-width: 1050px;">
+<table class="history-table" style="max-width: 1400px;">
 <thead><tr>
   <th></th>
   <th>Major</th>
   <th>Age</th>
+  <th>Sale</th>
+  <th>Weight</th>
   <th>Avg Paper</th>
   <th>Avg Mid-Tier</th>
   <th>Avg Holo</th>
@@ -2218,6 +3056,9 @@ ${[...history.entries].reverse().map((e, i, arr) => {
   <th>Weighted Avg</th>
   <th>Portfolio Would Be</th>
   <th>ROI</th>
+  <th title="Skinport average price with 15% markup for Steam fee parity" style="color:#c084fc;border-left:1px solid #2a475e;">SP Price (+15%)</th>
+  <th title="Skinport 7-day sales volume" style="color:#60a5fa;">SP Vol 7d</th>
+  <th title="Active listings on Skinport" style="color:#f59e0b;">SP Listings</th>
 </tr></thead>
 <tbody>
 ${projections.map(p => {
@@ -2227,34 +3068,46 @@ ${projections.map(p => {
   const iconicLink = iconic ? getMarketUrl(iconic.hashName) : '';
   const rowStyle = p.bestMajor ? 'background:rgba(255,215,0,0.05);' : '';
   const badge = p.bestMajor ? ' <span style="color:#ffd700;font-size:10px;font-weight:700;">BEST</span>' : '';
-  const years = p.monthsOld >= 12 ? `${(p.monthsOld/12).toFixed(1)}y` : `${p.monthsOld}mo`;
-  return `<tr style="${rowStyle}">
-    <td>${iconicImg ? `<a href="${iconicLink}" target="_blank" title="${iconic?.label}"><img src="${iconicImg}" class="iconic-thumb" loading="lazy"></a>` : ''}</td>
-    <td style="font-weight:600">${p.name}${badge}</td>
-    <td>${years}</td>
-    <td>$${m.avgPaper.toFixed(2)}</td>
-    <td>${m.avgMidTier > 0 ? '$' + m.avgMidTier.toFixed(2) : '<span style="color:#555">N/A</span>'}</td>
-    <td>${m.avgHolo > 0 ? '$' + m.avgHolo.toFixed(2) : '<span style="color:#555">N/A</span>'}</td>
-    <td>${m.avgGold > 0 ? '$' + m.avgGold.toFixed(2) : '<span style="color:#555">N/A</span>'}</td>
-    <td style="font-weight:600">$${p.weightedAvgPrice.toFixed(2)}</td>
-    <td style="font-weight:600" class="${p.portfolioValue >= grandCost ? 'positive' : 'negative'}">$${p.portfolioValue.toFixed(2)}</td>
-    <td class="${p.roi >= 0 ? 'positive' : 'negative'}" style="font-weight:700">${p.roi >= 0 ? '+' : ''}${p.roiStr}</td>
-  </tr>`;
+  const years = p.monthsOld >= 12 ? (p.monthsOld/12).toFixed(1) + 'y' : p.monthsOld + 'mo';
+  const weightPct = (m.weight * 100).toFixed(0);
+  const weightColor = m.weight >= 0.80 ? '#22c55e' : m.weight >= 0.50 ? '#f59e0b' : m.weight >= 0.10 ? '#f97316' : '#ef4444';
+  return '<tr style="' + rowStyle + '">' +
+    '<td>' + (iconicImg ? '<a href="' + iconicLink + '" target="_blank" title="' + (iconic?.label || '') + '"><img src="' + iconicImg + '" class="iconic-thumb" loading="lazy"></a>' : '') + '</td>' +
+    '<td style="font-weight:600">' + p.name + badge + '</td>' +
+    '<td>' + years + '</td>' +
+    '<td>' + m.saleDays + 'd</td>' +
+    '<td><span style="color:' + weightColor + ';font-weight:600;font-size:11px" title="' + m.notes.replace(/"/g, '&quot;') + '">' + weightPct + '%</span></td>' +
+    '<td>$' + m.avgPaper.toFixed(2) + '</td>' +
+    '<td>' + (m.avgMidTier > 0 ? '$' + m.avgMidTier.toFixed(2) : '<span style="color:#555">N/A</span>') + '</td>' +
+    '<td>' + (m.avgHolo > 0 ? '$' + m.avgHolo.toFixed(2) : '<span style="color:#555">N/A</span>') + '</td>' +
+    '<td>' + (m.avgGold > 0 ? '$' + m.avgGold.toFixed(2) : '<span style="color:#555">N/A</span>') + '</td>' +
+    '<td style="font-weight:600">$' + p.weightedAvgPrice.toFixed(2) + '</td>' +
+    '<td style="font-weight:600" class="' + (p.portfolioValue >= grandCost ? 'positive' : 'negative') + '">$' + p.portfolioValue.toFixed(2) + '</td>' +
+    '<td class="' + (p.roi >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + (p.roi >= 0 ? '+' : '') + p.roiStr + '</td>' +
+    '<td style="color:#c084fc;border-left:1px solid #2a475e;">' + (m.skinportAvgPrice > 0 ? '$' + m.skinportAvgPrice.toFixed(2) : '<span style="color:#555">—</span>') + '</td>' +
+    '<td style="color:#60a5fa">' + (m.skinportVol7d > 0 ? m.skinportVol7d.toLocaleString() : '<span style="color:#555">—</span>') + '</td>' +
+    '<td style="color:#f59e0b">' + (m.skinportListings > 0 ? m.skinportListings.toLocaleString() : '<span style="color:#555">—</span>') + '</td>' +
+  '</tr>';
 }).join('\n')}
 <tr style="border-top:2px solid #ffd700;font-weight:600;">
   <td></td>
-  <td>Budapest 2025</td>
+  <td>${config.event}</td>
   <td>Now</td>
-  <td colspan="4" style="color:#888;">Your current portfolio</td>
+  <td>~120d</td>
+  <td><span style="color:#67c1f5;font-weight:600;font-size:11px">You</span></td>
+  <td colspan="3" style="color:#888;">Your current portfolio</td>
   <td>$${avgStickerValue.toFixed(3)}</td>
   <td class="${grandValue >= grandCost ? 'positive' : 'negative'}">$${grandValue.toFixed(2)}</td>
   <td class="${parseFloat(grandROI) >= 0 ? 'positive' : 'negative'}">${grandROI}%</td>
+  <td style="color:#c084fc;border-left:1px solid #2a475e;">${skinportTotalListings > 0 ? '$' + (data.reduce((a, r) => a + (r.skinportVol7d > 0 ? r.currentPrice : 0), 0) / Math.max(data.filter(r => r.skinportVol7d > 0).length, 1)).toFixed(2) : '—'}</td>
+  <td style="color:#60a5fa">${skinportTotal7dVol > 0 ? skinportTotal7dVol.toLocaleString() : '—'}</td>
+  <td style="color:#f59e0b">${skinportTotalListings > 0 ? skinportTotalListings.toLocaleString() : '—'}</td>
 </tr>
 </tbody>
 </table>
 
-<h3 id="predictions-section">Budapest 2025 Price Predictions</h3>
-<p style="color:#888;font-size:13px;margin-bottom:16px;">Based on how previous major stickers appreciated over time, here's a projection for your Budapest 2025 portfolio. Best-performing major: <span style="color:#ffd700;font-weight:600">${bestMajor.name}</span> at <span class="positive">+${bestMajor.roiStr}</span> after ${(bestMajor.monthsOld/12).toFixed(1)} years.</p>
+<h3 id="predictions-section">${config.event} Price Predictions</h3>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">Based on how previous major stickers appreciated over time, here's a projection for your ${config.event} portfolio. Best-performing major: <span style="color:#ffd700;font-weight:600">${bestMajor.name}</span> at <span class="positive">+${bestMajor.roiStr}</span> after ${(bestMajor.monthsOld/12).toFixed(1)} years.</p>
 
 <div class="chart-container">
   <canvas id="predictionChart"></canvas>
@@ -2277,9 +3130,10 @@ ${projections.map(p => {
 </div>
 </div>
 
-<details style="margin-bottom:20px;">
-<summary style="cursor:pointer;color:#67c1f5;font-weight:600;font-size:14px;padding:10px 0;">Show Full Prediction Table (${timeProjections.length} intervals)</summary>
-<table class="history-table" style="max-width: 900px;margin-top:12px;">
+<h4 style="color:#fff;font-size:14px;margin:20px 0 12px;">Full Prediction Timeline (${timeProjections.length} intervals)</h4>
+<p style="color:#888;font-size:12px;margin-bottom:8px;">All prediction intervals from 2 weeks to 12 years. Green rows have actual price data to compare against projections. Scroll to explore all ${timeProjections.length} time points.</p>
+<div style="max-height:600px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<table class="history-table" style="max-width: 900px;">
 <thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Per Sticker</th><th>Actual Value</th><th>Actual ROI</th><th>Accuracy</th></tr></thead>
 <tbody>
 ${timeProjections.map(t => {
@@ -2287,8 +3141,10 @@ ${timeProjections.map(t => {
   const hasActual = t.actualValue !== undefined;
   const accPct = hasActual ? ((t.actualValue! / t.projectedValue) * 100).toFixed(0) : '';
   const accColor = hasActual ? (t.actualValue! >= t.projectedValue ? '#22c55e' : t.actualValue! >= t.projectedValue * 0.8 ? '#f59e0b' : '#ef4444') : '';
-  return `<tr>
-    <td style="font-weight:600">${t.label}</td>
+  const isMilestone = [0.5, 1, 3, 6, 12, 18, 24, 36, 48, 60, 84, 120, 144].includes(t.months);
+  const rowStyle = hasActual ? 'background:rgba(34,197,94,0.06);' : isMilestone ? 'background:rgba(103,193,245,0.06);border-left:2px solid #67c1f5;' : '';
+  return `<tr style="${rowStyle}">
+    <td style="font-weight:600">${t.label}${isMilestone ? ' <span style="color:#67c1f5;font-size:9px;">MILESTONE</span>' : ''}</td>
     <td class="${t.projectedValue >= grandCost ? 'positive' : 'negative'}">$${t.projectedValue.toFixed(2)}</td>
     <td class="${t.avgROI >= 0 ? 'positive' : 'negative'}">${t.avgROI >= 0 ? '+' : ''}${t.avgROI.toFixed(1)}%</td>
     <td style="color:#888">$${t.projectedPerSticker.toFixed(3)}</td>
@@ -2299,68 +3155,147 @@ ${timeProjections.map(t => {
 }).join('\n')}
 </tbody>
 </table>
-</details>
-
-<h4 style="color:#fff;font-size:14px;margin:20px 0 12px;">Key Milestones</h4>
-<table class="history-table" style="max-width: 900px;">
-<thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Per Sticker</th><th>Actual Value</th><th>Accuracy</th></tr></thead>
-<tbody>
-${timeProjections.filter(t => [0.5, 1, 3, 6, 12, 18, 24, 36, 48, 60, 84, 120, 144].includes(t.months)).map(t => {
-  const hasActual = t.actualValue !== undefined;
-  const accPct = hasActual ? ((t.actualValue! / t.projectedValue) * 100).toFixed(0) : '';
-  const accColor = hasActual ? (t.actualValue! >= t.projectedValue ? '#22c55e' : t.actualValue! >= t.projectedValue * 0.8 ? '#f59e0b' : '#ef4444') : '';
-  return `<tr>
-    <td style="font-weight:600">${t.label}</td>
-    <td class="${t.projectedValue >= grandCost ? 'positive' : 'negative'}">$${t.projectedValue.toFixed(2)}</td>
-    <td class="${t.avgROI >= 0 ? 'positive' : 'negative'}">${t.avgROI >= 0 ? '+' : ''}${t.avgROI.toFixed(1)}%</td>
-    <td style="color:#888">$${t.projectedPerSticker.toFixed(3)}</td>
-    <td style="font-weight:600">${hasActual ? '<span class="' + (t.actualValue! >= grandCost ? 'positive' : 'negative') + '">$' + t.actualValue!.toFixed(2) + '</span>' : '<span style="color:#555">—</span>'}</td>
-    <td>${hasActual ? '<span style="color:' + accColor + ';font-weight:600">' + accPct + '%</span>' : '<span style="color:#555">Pending</span>'}</td>
-  </tr>`;
-}).join('\n')}
-</tbody>
-</table>
-<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Projections based on ${projections.length} previous CS majors (Katowice 2014 - Austin 2025). Weighted by your quality distribution. Pre-2019 majors lack Gold tier (marked N/A). Katowice 2014 is heavily de-weighted (3%) as an unrealistic outlier for modern predictions. 2-week granularity for first year, monthly for year 2, quarterly/yearly beyond. Updated 6x daily. Past performance does not guarantee future results.</p>
+</div>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Projections based on ${projections.length} previous CS majors (Katowice 2014 - Austin 2025). Weighted by relevance: Katowice 2014 at 0.3%, Katowice 2015 at 2%, Atlanta 2017 at 4%, pre-2019 at 5-10%, 2018-2019 at 15-20%, CS2-era at 60-100%. Updated 6x daily. Past performance does not guarantee future results.</p>
 
 <h3>Sell Timing Recommendation</h3>
 <div class="sell-card">
   <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
     <div style="font-size:36px;font-weight:900;color:#67c1f5;">SELL @ ${bestSellStr}</div>
   </div>
-  <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Based on historical major performance (excluding Katowice 2014), the optimal sell window for Budapest 2025 stickers is around <strong style="color:#fff">${peakWindow.label}</strong> after release (~${bestSellStr}), when similar-age majors averaged <span class="positive">+${peakWindow.avgROI.toFixed(0)}%</span> ROI.</p>
+  <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Based on weighted historical major performance (CS2-era majors weighted highest), the optimal sell window for ${config.event} stickers is around <strong style="color:#fff">${peakWindow.label}</strong> after release (~${bestSellStr}), when similar-age majors averaged <span class="positive">+${peakWindow.avgROI.toFixed(0)}%</span> ROI.</p>
   <p style="color:#888;font-size:12px;">Reference majors at that age: ${peakWindow.majorsInRange.join(', ') || 'None'}</p>
 </div>
 
+<p style="color:#888;font-size:12px;margin-bottom:8px;">Weekly breakdown for the first 3 months, then monthly/quarterly intervals. Scroll to see all ${sellWindows.length} sell windows. Signal is based on weighted ROI from ${realisticProjections.length} comparable majors.</p>
+<div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table class="history-table" style="max-width: 900px;">
-<thead><tr><th>Sell Window</th><th>Target Age</th><th>Avg ROI at Age</th><th>Portfolio Estimate</th><th>Reference Majors</th><th>Signal</th></tr></thead>
+<thead><tr><th>Sell Window</th><th>Target Date</th><th>Avg ROI at Age</th><th>Portfolio Estimate</th><th>Per Sticker</th><th>Reference Majors</th><th>Signal</th></tr></thead>
 <tbody>
 ${sellWindows.map(sw => {
   const projVal = grandCost * (1 + sw.avgROI / 100);
+  const perSticker = projVal / userTotal;
   const sellDate = new Date(new Date("2025-09-15").getTime() + sw.months * 30.44 * 86400000);
   const sellStr = sellDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-  const sigColor = sw.recommendation === 'STRONG SELL' ? '#22c55e' : sw.recommendation === 'CONSIDER SELLING' ? '#f59e0b' : sw.recommendation === 'TOO EARLY' ? '#ef4444' : '#888';
-  return `<tr>
-    <td style="font-weight:600">${sw.label}</td>
+  const sigColor = sw.recommendation === 'STRONG SELL' ? '#22c55e' : sw.recommendation === 'CONSIDER SELLING' ? '#f59e0b' : sw.recommendation === 'HOLD FOR MORE' ? '#67c1f5' : sw.recommendation === 'TOO EARLY' ? '#ef4444' : '#888';
+  const isPeak = sw === peakWindow;
+  const rowStyle = isPeak ? 'background:rgba(255,215,0,0.08);border-left:3px solid #ffd700;' : '';
+  return `<tr style="${rowStyle}">
+    <td style="font-weight:600">${sw.label}${isPeak ? ' <span style="color:#ffd700;font-size:10px;font-weight:700;">PEAK</span>' : ''}</td>
     <td>${sellStr}</td>
     <td class="${sw.avgROI >= 0 ? 'positive' : 'negative'}">${sw.avgROI >= 0 ? '+' : ''}${sw.avgROI.toFixed(0)}%</td>
     <td class="${projVal >= grandCost ? 'positive' : 'negative'}">$${projVal.toFixed(2)}</td>
+    <td style="color:#888">$${perSticker.toFixed(3)}</td>
     <td style="font-size:11px;color:#888">${sw.majorsInRange.slice(0, 3).join(', ') || '-'}</td>
     <td style="color:${sigColor};font-weight:700;font-size:11px">${sw.recommendation}</td>
   </tr>`;
 }).join('\n')}
 </tbody>
 </table>
+</div>
 <p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Sell timing based on ${realisticProjections.length} majors (Katowice 2014 excluded as outlier). These are averages &mdash; individual stickers (especially Gold/Holo) may appreciate faster or slower than the portfolio average.</p>
+
+<h3 id="altinvest-section">Alternative Investment Comparison</h3>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">What if you had invested your <strong style="color:#fff">$${grandCost.toFixed(2)} AUD</strong> in other assets on <strong style="color:#fff">${investmentDateStr}</strong> instead of ${config.event} stickers? This compares your sticker portfolio performance against traditional and crypto assets.</p>
+
+<div class="market-summary">
+  <div class="card" style="border-left:3px solid #67c1f5;">
+    <div class="card-label">CS2 Stickers</div>
+    <div class="card-value ${stickerROI >= 0 ? 'positive' : 'negative'}">$${grandValue.toFixed(2)}</div>
+    <div class="card-sub">${stickerROI >= 0 ? '+' : ''}${stickerROI.toFixed(1)}% ROI</div>
+  </div>
+${altInvestments.map(a => `  <div class="card" style="border-left:3px solid ${a.color};">
+    <div class="card-label">${a.name} (${a.symbol})</div>
+    <div class="card-value ${a.roi >= 0 ? 'positive' : 'negative'}">$${a.investedValue.toFixed(2)}</div>
+    <div class="card-sub">${a.roi >= 0 ? '+' : ''}${a.roi.toFixed(1)}% ROI</div>
+  </div>`).join('\n')}
+</div>
+
+${altInvestments.length > 0 ? `
+<table class="history-table" style="max-width:1000px;margin-top:16px;">
+<thead><tr>
+  <th>Asset</th>
+  <th>Price at Purchase</th>
+  <th>Price Now</th>
+  <th>Asset Change</th>
+  <th>$${grandCost.toFixed(0)} AUD Would Be</th>
+  <th>vs Stickers</th>
+</tr></thead>
+<tbody>
+<tr style="background:rgba(103,193,245,0.05);">
+  <td style="font-weight:600;color:#67c1f5">CS2 Stickers</td>
+  <td>${config.currencySymbol}${config.costPerUnit} ${config.currency}/ea</td>
+  <td>$${avgStickerValue.toFixed(3)} AUD/ea</td>
+  <td class="${stickerROI >= 0 ? 'positive' : 'negative'}" style="font-weight:700">${stickerROI >= 0 ? '+' : ''}${stickerROI.toFixed(1)}%</td>
+  <td style="font-weight:600" class="${grandValue >= grandCost ? 'positive' : 'negative'}">$${grandValue.toFixed(2)} AUD</td>
+  <td style="color:#67c1f5;font-weight:600">—</td>
+</tr>
+${altInvestments.map(a => {
+  const assetChange = ((a.currentPrice - a.purchasePrice) / a.purchasePrice * 100);
+  const vsStickerDiff = a.investedValue - grandValue;
+  const vsStickerPct = grandValue > 0 ? ((a.investedValue - grandValue) / grandValue * 100) : 0;
+  return '<tr>' +
+    '<td style="font-weight:600;color:' + a.color + '">' + a.name + ' (' + a.symbol + ')</td>' +
+    '<td>$' + (a.purchasePrice >= 100 ? a.purchasePrice.toLocaleString() : a.purchasePrice.toFixed(2)) + ' USD</td>' +
+    '<td>$' + (a.currentPrice >= 100 ? a.currentPrice.toLocaleString() : a.currentPrice.toFixed(2)) + ' USD</td>' +
+    '<td class="' + (assetChange >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + (assetChange >= 0 ? '+' : '') + assetChange.toFixed(1) + '%</td>' +
+    '<td style="font-weight:600" class="' + (a.investedValue >= grandCost ? 'positive' : 'negative') + '">$' + a.investedValue.toFixed(2) + ' AUD</td>' +
+    '<td class="' + (vsStickerDiff >= 0 ? 'negative' : 'positive') + '">' + (vsStickerDiff >= 0 ? 'Behind by $' + vsStickerDiff.toFixed(2) : 'Ahead by $' + Math.abs(vsStickerDiff).toFixed(2)) + '</td>' +
+  '</tr>';
+}).join('\n')}
+</tbody>
+</table>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Gold/silver prices are approximate for the purchase date. Crypto prices from CoinGecko historical API. All values converted to AUD using current exchange rate ($1 USD = $${exchangeRates.usdToAud.toFixed(4)} AUD). Sticker investments are illiquid and carry higher risk than traditional assets.</p>
+` : '<p style="color:#555;text-align:center;padding:20px;">Alternative investment data unavailable. Will appear on next update.</p>'}
+
+<h3 id="capsule-section">Capsule Investment (${CAPSULE_QTY} Capsules)</h3>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">You hold <strong style="color:#fff">${CAPSULE_QTY} ${config.event} capsules</strong> bought at ~A$${CAPSULE_COST_EACH.toFixed(2)} each (A$${capsuleTotalCost.toFixed(2)} total). Capsule prices typically rise after removal from the in-game store. Below is how capsules from previous majors performed.</p>
+
+<div class="summary" style="margin-bottom:20px;">
+  <div class="card"><div class="card-label">Capsules Held</div><div class="card-value neutral">${CAPSULE_QTY}</div><div class="card-sub">${config.event} Major</div></div>
+  <div class="card"><div class="card-label">Total Invested</div><div class="card-value" style="color:#60a5fa">$${capsuleTotalCost.toFixed(2)}</div><div class="card-sub">@ $${CAPSULE_COST_EACH.toFixed(2)} each</div></div>
+  <div class="card"><div class="card-label">Best Case</div><div class="card-value positive">$${(CAPSULE_QTY * capsuleHistory[0].currentPrice).toFixed(0)}</div><div class="card-sub">${capsuleHistory[0].name} path (${capsuleHistory[0].monthsOld}mo)</div></div>
+  <div class="card"><div class="card-label">Comparable (Austin)</div><div class="card-value ${(austinCapsule?.currentPrice || 0) >= CAPSULE_COST_EACH ? 'positive' : 'negative'}">$${(CAPSULE_QTY * (austinCapsule?.currentPrice || 0)).toFixed(2)}</div><div class="card-sub">Shortest sale (49 days), most similar</div></div>
+</div>
+
+<table class="history-table" style="max-width: 900px;">
+<thead><tr><th>Major</th><th>Sale Days</th><th>Age</th><th>Sale Price</th><th>Current Price</th><th>ROI</th><th>Your ${CAPSULE_QTY} Would Be</th></tr></thead>
+<tbody>
+${capsuleHistory.map(c => {
+  const yourValue = CAPSULE_QTY * c.currentPrice;
+  const years = c.monthsOld >= 12 ? (c.monthsOld / 12).toFixed(1) + 'y' : c.monthsOld + 'mo';
+  return '<tr>' +
+    '<td style="font-weight:600">' + c.name + '</td>' +
+    '<td>' + c.saleDays + ' days</td>' +
+    '<td>' + years + '</td>' +
+    '<td>$' + c.salePrice.toFixed(2) + '</td>' +
+    '<td style="font-weight:600">$' + c.currentPrice.toFixed(2) + '</td>' +
+    '<td class="' + (c.roi >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + (c.roi >= 0 ? '+' : '') + c.roi.toFixed(0) + '%</td>' +
+    '<td class="' + (yourValue >= capsuleTotalCost ? 'positive' : 'negative') + '" style="font-weight:600">$' + yourValue.toFixed(2) + '</td>' +
+  '</tr>';
+}).join('\n')}
+<tr style="border-top:2px solid #ffd700;font-weight:600;">
+  <td>${config.event}</td>
+  <td>~120 days</td>
+  <td>Now</td>
+  <td>$${CAPSULE_COST_EACH.toFixed(2)}</td>
+  <td>$${CAPSULE_COST_EACH.toFixed(2)}</td>
+  <td style="color:#888">0%</td>
+  <td style="color:#888">$${capsuleTotalCost.toFixed(2)}</td>
+</tr>
+</tbody>
+</table>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Capsule prices are approximate. Sale duration is the strongest predictor of capsule ROI — shorter sales = less supply = better returns. Austin 2025's 49-day sale vs Paris 2023's 146 days illustrates this clearly. Budapest's ~120-day sale window is moderate.</p>
 
 <h3 id="quick-stats-section">Quick Stats</h3>
 <div class="summary" style="margin-bottom:16px;">
   <div class="card"><div class="card-label">Price Updates</div><div class="card-value neutral">${history.entries.length}</div><div class="card-sub">snapshots recorded</div></div>
   <div class="card"><div class="card-label">Updates Per Day</div><div class="card-value dimmed">6x</div><div class="card-sub">every 4 hours</div></div>
-  <div class="card"><div class="card-label">Avg Sticker Price</div><div class="card-value ${avgStickerValue >= 0.35 ? 'positive' : 'negative'}">$${avgStickerValue.toFixed(3)}</div><div class="card-sub">need $0.35 to break even</div></div>
+  <div class="card"><div class="card-label">Avg Sticker Price</div><div class="card-value ${avgStickerValue >= config.costPerUnit ? 'positive' : 'negative'}">${config.currencySymbol}${avgStickerValue.toFixed(3)}</div><div class="card-sub">need ${config.currencySymbol}${config.costPerUnit} to break even</div></div>
   <div class="card"><div class="card-label">Gold Value</div><div class="card-value positive">$${(qualityTotals['Gold']?.value || 0).toFixed(2)}</div><div class="card-sub">${((qualityTotals['Gold']?.value || 0) / grandValue * 100).toFixed(1)}% of portfolio</div></div>
   <div class="card"><div class="card-label">Holo Value</div><div class="card-value positive">$${(qualityTotals['Holo']?.value || 0).toFixed(2)}</div><div class="card-sub">${((qualityTotals['Holo']?.value || 0) / grandValue * 100).toFixed(1)}% of portfolio</div></div>
   <div class="card"><div class="card-label">Normal Value</div><div class="card-value negative">$${(qualityTotals['Normal']?.value || 0).toFixed(2)}</div><div class="card-sub">${((qualityTotals['Normal']?.value || 0) / grandValue * 100).toFixed(1)}% of portfolio</div></div>
-  <div class="card"><div class="card-label">Most Valuable</div><div class="card-value" style="font-size:15px;color:#ffd700">${bestPerformer ? bestPerformer.name + ' ' + bestPerformer.quality : '-'}</div><div class="card-sub">${bestPerformer ? '$' + bestPerformer.currentPrice.toFixed(2) + ' (+' + ((bestPerformer.currentPrice / 0.35 - 1) * 100).toFixed(0) + '%)' : ''}</div></div>
+  <div class="card"><div class="card-label">Most Valuable</div><div class="card-value" style="font-size:15px;color:#ffd700">${bestPerformer ? bestPerformer.name + ' ' + bestPerformer.quality : '-'}</div><div class="card-sub">${bestPerformer ? '$' + bestPerformer.currentPrice.toFixed(2) + ' (+' + ((bestPerformer.currentPrice / config.costPerUnit - 1) * 100).toFixed(0) + '%)' : ''}</div></div>
   <div class="card"><div class="card-label">Portfolio ATH</div><div class="card-value positive">${portfolioATH ? '$' + portfolioATH.totalValue.toFixed(2) : '-'}</div><div class="card-sub">${portfolioATH ? portfolioATH.date : ''}</div></div>
   <div class="card"><div class="card-label">Portfolio ATL</div><div class="card-value negative">${portfolioATL ? '$' + portfolioATL.totalValue.toFixed(2) : '-'}</div><div class="card-sub">${portfolioATL ? portfolioATL.date : ''}</div></div>
   <div class="card"><div class="card-label">Sticker ATH</div><div class="card-value" style="font-size:15px;color:#22c55e">${stickerATH ? stickerATH.name + ' ' + stickerATH.quality : '-'}</div><div class="card-sub">${stickerATH ? '$' + stickerATH.allTimeHigh.toFixed(2) + ' on ' + stickerATH.allTimeHighDate : ''}</div></div>
@@ -2370,7 +3305,7 @@ ${sellWindows.map(sw => {
 
 <h3 id="browse-section">Browse by Player / Team (${sortedGroups.length} entities)</h3>
 <p style="color:#888;font-size:13px;margin-bottom:16px;">Click any player/team to expand quality variants. Sorted by total portfolio value.</p>
-<details open>
+<details>
 <summary style="cursor:pointer;color:#67c1f5;font-weight:600;font-size:14px;padding:8px 0;margin-bottom:12px;">Show/Hide Browse (${sortedGroups.length} players & teams)</summary>
 <div id="accordionContainer">
 ${sortedGroups.map((g, gi) => {
@@ -2433,7 +3368,7 @@ ${data.map((r, idx) => {
     ${r.imageUrl ? '<img src="' + getImageUrl(imageCache, r.hashName, 128) + '" alt="' + r.name + '" loading="lazy">' : ''}
     <div class="grid-card-name">${r.name}</div>
     <span class="quality-badge q-${qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal'}" style="font-size:9px;margin-top:4px">${r.quality}</span>
-    <div class="grid-card-price ${r.currentPrice >= 0.35 ? 'positive' : 'negative'}">$${r.currentPrice.toFixed(2)}</div>
+    <div class="grid-card-price ${r.currentPrice >= config.costPerUnit ? 'positive' : 'negative'}">$${r.currentPrice.toFixed(2)}</div>
     <div class="grid-card-roi ${roiVal >= 0 ? 'positive' : 'negative'}">${roiVal >= 0 ? '+' : ''}${r.roi}</div>
   </div>`;
 }).join('\n')}
@@ -2464,7 +3399,7 @@ ${data.map((r, idx) => {
   const qc = r.quality.toLowerCase();
   const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
   const dist = distToBreakEven(r.currentPrice);
-  const distCls = r.currentPrice >= 0.35 ? 'dist-pos' : 'dist-neg';
+  const distCls = r.currentPrice >= config.costPerUnit ? 'dist-pos' : 'dist-neg';
   const roiPct = parseFloat(r.roi);
   const barW = Math.min(Math.abs(roiPct) / 2, 60);
   const barColor = roiPct >= 0 ? '#22c55e' : '#ef4444';
@@ -2518,8 +3453,8 @@ ${data.map((r, idx) => {
 <button class="scroll-top" id="scrollTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button>
 
 <div class="footer">
-  <p>Sticker Investment Tracker by <a href="https://steamcommunity.com/id/oldm8clint" target="_blank">clint</a> &middot; Prices updated 6x daily via GitHub Actions</p>
-  <p><a href="https://steamcommunity.com/id/oldm8clint/inventory/" target="_blank">Steam Inventory</a> &middot; <a href="https://steamcommunity.com/id/oldm8clint" target="_blank">Steam Profile</a></p>
+  <p>Sticker Investment Tracker by <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank">${config.steamProfile.displayName}</a> &middot; Prices updated 6x daily via GitHub Actions</p>
+  <p><a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}/inventory/" target="_blank">Steam Inventory</a> &middot; <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank">Steam Profile</a></p>
 </div>
 </div><!-- end .page-content -->
 
@@ -2593,7 +3528,7 @@ const hCtx = document.getElementById('historicalChart').getContext('2d');
 new Chart(hCtx, {
   type: 'bar',
   data: {
-    labels: ${JSON.stringify([...projections.map(p => p.name), 'Budapest 2025'])},
+    labels: ${JSON.stringify([...projections.map(p => p.name), config.event])},
     datasets: [
       {
         label: 'Portfolio Value (AUD)',
@@ -2667,8 +3602,8 @@ new Chart(pdCtx, {
     datasets: [{
       label: 'Sticker Count',
       data: ${JSON.stringify(priceDistribution.map(b => b.count))},
-      backgroundColor: ${JSON.stringify(priceDistribution.map(b => b.min >= 0.35 ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.4)'))},
-      borderColor: ${JSON.stringify(priceDistribution.map(b => b.min >= 0.35 ? '#22c55e' : '#ef4444'))},
+      backgroundColor: ${JSON.stringify(priceDistribution.map(b => b.min >= config.costPerUnit ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.4)'))},
+      borderColor: ${JSON.stringify(priceDistribution.map(b => b.min >= config.costPerUnit ? '#22c55e' : '#ef4444'))},
       borderWidth: 1,
       borderRadius: 4,
     }]
@@ -2810,7 +3745,7 @@ new Chart(pCtx, {
   for (const q of qualNames) {
     const qStickers = ${JSON.stringify(stickers)}.filter(s => s.quality === q || (q === 'Normal' && s.quality.startsWith('Normal')));
     const qQty = qStickers.reduce((a, s) => a + s.qty, 0);
-    const qCost = qQty * 0.35;
+    const qCost = qQty * config.costPerUnit;
     qualPredData[q] = predValues.map((v, i) => {
       if (i === 0) {
         const qCurrentVal = ${JSON.stringify(Object.fromEntries(
@@ -3103,6 +4038,108 @@ const counterObserver = new IntersectionObserver(entries => {
 }, { threshold: 0.3 });
 document.querySelectorAll('.counter-value[data-target]').forEach(el => counterObserver.observe(el));
 
+// ── Weekly Analysis ──
+const WEEKLY_DATA = ${JSON.stringify(weeklySnapshots)};
+let weekPriceChart = null;
+let weekQualityChart = null;
+const qualityColors = { 'Normal': '#b0c3d9', 'Embroidered': '#4b69ff', 'Holo': '#8847ff', 'Gold': '#ffd700', 'Normal (Champion)': '#eb4b4b', 'Embroidered (Champion)': '#eb4b4b', 'Holo (Champion)': '#eb4b4b' };
+
+function selectWeek(idx) {
+  if (!WEEKLY_DATA[idx]) return;
+  const w = WEEKLY_DATA[idx];
+
+  // Update active tab
+  document.querySelectorAll('.week-tab').forEach((t, i) => {
+    t.classList.toggle('active', i === idx);
+  });
+
+  // Comparison stats
+  const prev = WEEKLY_DATA[idx + 1];
+  const compGrid = document.getElementById('weekComparisonGrid');
+  if (compGrid) {
+    const valueChange = prev ? w.totalValue - prev.totalValue : 0;
+    const valuePct = prev && prev.totalValue > 0 ? ((valueChange / prev.totalValue) * 100).toFixed(1) : '0';
+    const pl = w.totalValue - w.totalCost;
+    const roi = w.totalCost > 0 ? ((pl / w.totalCost) * 100).toFixed(1) : '0';
+    compGrid.innerHTML = [
+      { label: 'Week Of', value: w.weekLabel, color: '#67c1f5' },
+      { label: 'Portfolio Value', value: '$' + w.totalValue.toFixed(2), color: w.totalValue >= w.totalCost ? '#22c55e' : '#ef4444' },
+      { label: 'P/L', value: (pl >= 0 ? '+' : '') + '$' + pl.toFixed(2), color: pl >= 0 ? '#22c55e' : '#ef4444' },
+      { label: 'ROI', value: roi + '%', color: parseFloat(roi) >= 0 ? '#22c55e' : '#ef4444' },
+      ...(prev ? [{ label: 'Week Change', value: (valueChange >= 0 ? '+' : '') + '$' + valueChange.toFixed(2) + ' (' + valuePct + '%)', color: valueChange >= 0 ? '#22c55e' : '#ef4444' }] : []),
+    ].map(s => '<div class="week-stat"><div class="week-stat-label">' + s.label + '</div><div class="week-stat-value" style="color:' + s.color + '">' + s.value + '</div></div>').join('');
+  }
+
+  // Price distribution chart
+  const pdCtx = document.getElementById('weekPriceDistChart');
+  if (pdCtx) {
+    if (weekPriceChart) weekPriceChart.destroy();
+    weekPriceChart = new Chart(pdCtx, {
+      type: 'bar',
+      data: {
+        labels: w.priceDistribution.map(d => d.label),
+        datasets: [{
+          label: 'Stickers in Range',
+          data: w.priceDistribution.map(d => d.count),
+          backgroundColor: 'rgba(103,193,245,0.6)',
+          borderColor: '#67c1f5',
+          borderWidth: 1,
+          borderRadius: 3,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(10,10,20,0.9)', borderColor: '#333', borderWidth: 1 } },
+        scales: {
+          x: { ticks: { color: '#666' }, grid: { color: 'rgba(255,255,255,0.03)' } },
+          y: { ticks: { color: '#888', font: { size: 11 } }, grid: { display: false } },
+        }
+      }
+    });
+  }
+
+  // Quality breakdown doughnut
+  const qbCtx = document.getElementById('weekQualityChart');
+  if (qbCtx) {
+    if (weekQualityChart) weekQualityChart.destroy();
+    weekQualityChart = new Chart(qbCtx, {
+      type: 'doughnut',
+      data: {
+        labels: w.qualityBreakdown.map(q => q.quality),
+        datasets: [{
+          data: w.qualityBreakdown.map(q => parseFloat(q.value.toFixed(2))),
+          backgroundColor: w.qualityBreakdown.map(q => qualityColors[q.quality] || '#888'),
+          borderColor: '#1b2838',
+          borderWidth: 2,
+        }],
+      },
+      options: {
+        responsive: true,
+        cutout: '55%',
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#888', padding: 16, font: { size: 11 } } },
+          tooltip: {
+            backgroundColor: 'rgba(10,10,20,0.9)', borderColor: '#333', borderWidth: 1,
+            callbacks: { label: (c) => c.label + ': $' + c.parsed.toFixed(2) + ' (' + c.dataset.data.length + ')' }
+          }
+        }
+      }
+    });
+  }
+
+  // Top movers
+  const moversEl = document.getElementById('weekMovers');
+  if (moversEl && w.topMovers && w.topMovers.length > 0) {
+    moversEl.innerHTML = '<div class="sub-table"><h4 style="color:#67c1f5">Top Movers This Week</h4><table><thead><tr><th>Sticker</th><th>Quality</th><th>Change</th></tr></thead><tbody>' +
+      w.topMovers.map(m => '<tr><td style="font-weight:500">' + m.name + '</td><td>' + m.quality + '</td><td class="' + (m.change >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + (m.change >= 0 ? '+' : '') + m.change.toFixed(1) + '%</td></tr>').join('') +
+      '</tbody></table></div>';
+  } else if (moversEl) {
+    moversEl.innerHTML = '';
+  }
+}
+if (WEEKLY_DATA.length > 0) selectWeek(0);
+
 // ── CSV Download ──
 function downloadCSV() {
   const csv = ${JSON.stringify(csvOut.replace(/\n/g, '\r\n'))};
@@ -3193,18 +4230,30 @@ function downloadCSV() {
     const top3Up = topMovers.slice(0, 3).map(m => `${m.name} (${m.quality}): +${m.changePct.toFixed(1)}%`).join('\n');
     const top3Down = topMovers.slice(-3).reverse().map(m => `${m.name} (${m.quality}): ${m.changePct.toFixed(1)}%`).join('\n');
 
+    // Quality tier values for portfolio summary
+    const qualityValueSummary = Object.entries(qualityTotals)
+      .sort((a, b) => b[1].value - a[1].value)
+      .map(([q, t]) => `${q}: A$${t.value.toFixed(2)} (${t.qty} stickers)`)
+      .join('\n');
+
     await sendDiscord(DISCORD_WEBHOOKS.portfolio, [{
-      title: '\u{1F4CA} Portfolio Summary',
+      title: '\u{1F4CA} Portfolio Update',
       color: 0x3b82f6,
+      description: `Price update completed at ${new Date().toLocaleString('en-AU', { timeZone: 'Australia/Sydney', dateStyle: 'medium', timeStyle: 'short' })} AEST`,
       fields: [
         { name: 'Total Value', value: `A$${grandValue.toFixed(2)}`, inline: true },
+        { name: 'Total Invested', value: `A$${grandCost.toFixed(2)}`, inline: true },
         { name: 'P/L', value: `${grandPL >= 0 ? '+' : ''}A$${grandPL.toFixed(2)} (${grandROI}%)`, inline: true },
         { name: 'Change', value: prevEntry ? `${portfolioChange >= 0 ? '+' : ''}A$${portfolioChange.toFixed(2)} (${portfolioChangePct}%)` : 'First snapshot', inline: true },
+        { name: 'Break-Even', value: `${breakEvenPct.toFixed(1)}% | ${profitableCount}/${data.length} profitable`, inline: true },
+        { name: 'Signal', value: `${investmentSignal} (${investmentScore}/10)`, inline: true },
         ...(top3Up ? [{ name: '\u{1F4C8} Top Movers', value: top3Up, inline: true }] : []),
         ...(top3Down ? [{ name: '\u{1F4C9} Bottom Movers', value: top3Down, inline: true }] : []),
-        { name: 'Stats', value: `${history.entries.length} snapshots | ${grandQty} stickers tracked`, inline: false },
+        { name: '\u{1F3AF} Quality Breakdown', value: qualityValueSummary, inline: false },
+        { name: 'Stats', value: `${history.entries.length} snapshots | ${grandQty} stickers | Avg $${avgStickerValue.toFixed(3)}/sticker`, inline: false },
       ],
       footer: discordFooter(),
+      timestamp: new Date().toISOString(),
     }]);
     console.log('Discord: Sent portfolio summary');
 
@@ -3260,16 +4309,17 @@ function downloadCSV() {
     todayEntry.lastInvestmentScore = investmentScore;
     todayEntry.lastInvestmentSignal = investmentSignal;
 
-    // 5F: Slab Opportunity Alerts
-    const slabOpps = uniqueSlabRows.filter(r => r.slabPrice > 0 && r.premiumPct <= -20);
+    // 5F: Slab Sell Opportunity Alerts (when slab premium > 20% — worth slabbing your stickers)
+    const slabOpps = uniqueSlabRows.filter(r => r.slabPrice > 0 && r.canSlab && r.premiumPct > 20);
     if (slabOpps.length > 0) {
       const slabEmbeds = slabOpps.slice(0, 5).map(r => ({
-        title: `\u{1F4B0} Slab Deal: ${r.name} (${r.quality})`,
+        title: `\u{1F4B0} Slab Sell Opportunity: ${r.name} (${r.quality})`,
         color: 0x22c55e,
         fields: [
           { name: '5x Individual', value: `A$${r.fiveXPrice.toFixed(2)}`, inline: true },
           { name: 'Slab Price', value: `A$${r.slabPrice.toFixed(2)}`, inline: true },
-          { name: 'Savings', value: `${Math.abs(r.premiumPct).toFixed(1)}% cheaper`, inline: true },
+          { name: 'Slab Premium', value: `+${r.premiumPct.toFixed(1)}% more as slab`, inline: true },
+          { name: 'You Hold', value: `${r.heldQty} (can slab)`, inline: true },
         ],
         url: getMarketUrl(r.hashName),
         footer: discordFooter(),
@@ -3292,23 +4342,94 @@ function downloadCSV() {
       const weekChange = todayEntry.totalValue - weekAgoEntry.totalValue;
       const weekChangePct = ((weekChange / weekAgoEntry.totalValue) * 100).toFixed(1);
 
+      // Quality tier value breakdown for weekly report
+      const weeklyQualityBreakdown = Object.entries(qualityTotals)
+        .sort((a, b) => b[1].value - a[1].value)
+        .map(([q, t]) => {
+          const pl = t.value - t.cost;
+          const roi = ((pl / t.cost) * 100).toFixed(1);
+          return `**${q}**: A$${t.value.toFixed(2)} (${t.qty} stickers, ${parseFloat(roi) >= 0 ? '+' : ''}${roi}%)`;
+        }).join('\n');
+
+      // Price distribution summary for weekly report
+      const weeklyPriceDist = priceDistribution.map(b => `${b.label}: ${b.count} stickers`).join(' | ');
+
       await sendDiscord(DISCORD_WEBHOOKS.weekly, [{
         title: '\u{1F4C5} Weekly Trend Report',
         color: 0x8b5cf6,
+        description: `Week ending ${new Date().toLocaleDateString('en-AU', { dateStyle: 'medium' })}`,
         fields: [
           { name: 'Week-over-Week', value: `${weekChange >= 0 ? '+' : ''}A$${weekChange.toFixed(2)} (${weekChangePct}%)`, inline: true },
           { name: 'Portfolio Value', value: `A$${grandValue.toFixed(2)}`, inline: true },
           { name: 'ROI', value: `${grandROI}%`, inline: true },
           { name: 'Investment Signal', value: `${investmentSignal} (${investmentScore}/10)`, inline: true },
-          { name: 'Quality Breakdown', value: `Normal: ${(pctNormal*100).toFixed(0)}% | Emb: ${(pctEmbroidered*100).toFixed(0)}% | Holo: ${(pctHolo*100).toFixed(0)}% | Gold: ${(pctGold*100).toFixed(0)}%`, inline: false },
+          { name: 'Break-Even Progress', value: `${breakEvenPct.toFixed(1)}% | ${profitableCount}/${data.length} profitable`, inline: true },
+          { name: 'Avg Sticker Price', value: `A$${avgStickerValue.toFixed(3)}`, inline: true },
+          { name: '\u{1F3AF} Quality Tier Values', value: weeklyQualityBreakdown, inline: false },
+          { name: '\u{1F4CA} Price Distribution', value: weeklyPriceDist, inline: false },
           { name: 'Est. Sell Window', value: `${peakWindow.label} (~${bestSellStr})`, inline: true },
           { name: 'Projected Break-Even', value: breakEvenMonths > 0 ? (breakEvenMonths < 12 ? breakEvenMonths + ' months' : (breakEvenMonths/12).toFixed(1) + ' years') : 'Unknown', inline: true },
-          { name: 'Dashboard', value: '[View Live Dashboard](https://oldm8clint.github.io/budapest2025/)', inline: false },
+          { name: 'Dashboard', value: `[View Live Dashboard](${config.githubPagesUrl || 'https://oldm8clint.github.io/budapest2025/'})`, inline: false },
         ],
         footer: discordFooter(),
+        timestamp: new Date().toISOString(),
       }]);
       todayEntry.weeklyReportSent = now.toISOString();
       console.log('Discord: Sent weekly trend report');
+    }
+
+    // 6: Skinport Third-Party Data Report
+    if (skinportTotalListings > 0 || skinportTotal7dVol > 0) {
+      const topSkinportItems = skinportTopByVol.slice(0, 5).map(r =>
+        `**${r.name}** (${r.quality}): ${r.skinportVol7d} sales/7d | A$${r.currentPrice.toFixed(2)} Steam`
+      ).join('\n');
+
+      await sendDiscord(DISCORD_WEBHOOKS.skinport, [{
+        title: '\u{1F6D2} Skinport Market Activity',
+        color: 0xc084fc,
+        description: 'Third-party marketplace data (volume only — prices excluded as ~15% lower than Steam due to no seller fee)',
+        fields: [
+          { name: 'Active Listings', value: skinportTotalListings.toLocaleString(), inline: true },
+          { name: '7-Day Volume', value: skinportTotal7dVol.toLocaleString(), inline: true },
+          { name: '30-Day Volume', value: skinportTotal30dVol.toLocaleString(), inline: true },
+          { name: 'Combined Activity', value: `Steam 24h: ${totalVolume24h.toLocaleString()} + Skinport 7d: ${skinportTotal7dVol.toLocaleString()}`, inline: false },
+          ...(topSkinportItems ? [{ name: '\u{1F525} Top Skinport Sellers (7d)', value: topSkinportItems, inline: false }] : []),
+          { name: 'Dashboard', value: `[View Live Dashboard](${config.githubPagesUrl || 'https://oldm8clint.github.io/budapest2025/'})`, inline: false },
+        ],
+        footer: discordFooter(),
+        timestamp: new Date().toISOString(),
+      }]);
+      console.log('Discord: Sent Skinport market data');
+    }
+
+    // 7: Major Tracking Report (when data exists)
+    if (majorPriceLastUpdated) {
+      const latestMajorData = majorPriceHistory.entries[majorPriceHistory.entries.length - 1];
+      const recentMajorNames = ['Austin 2025', 'Shanghai 2024', 'Copenhagen 2024'];
+      const majorFields = recentMajorNames.map(name => {
+        const a = latestMajorData.averages[name];
+        if (!a) return null;
+        return {
+          name: `\u{1F3AE} ${name}`,
+          value: `Normal: A$${a.avgNormal.toFixed(2)} | Holo: A$${a.avgHolo.toFixed(2)} | Gold: A$${a.avgGold.toFixed(2)} | Vol: ${a.totalVolume}`,
+          inline: false,
+        };
+      }).filter(Boolean) as { name: string; value: string; inline: boolean }[];
+
+      if (majorFields.length > 0) {
+        await sendDiscord(DISCORD_WEBHOOKS.majorTracking, [{
+          title: '\u{1F4C8} Previous Major Price Tracking',
+          color: 0xf59e0b,
+          description: `Live prices from ${recentMajorNames.length} most recent majors (updated ${majorPriceLastUpdated}). These feed directly into ${config.event} predictions.`,
+          fields: [
+            ...majorFields,
+            { name: 'Dashboard', value: `[View Live Dashboard](${config.githubPagesUrl || 'https://oldm8clint.github.io/budapest2025/'})`, inline: false },
+          ],
+          footer: discordFooter(),
+          timestamp: new Date().toISOString(),
+        }]);
+        console.log('Discord: Sent major tracking update');
+      }
     }
 
     // Save updated milestones/signal data back to history
