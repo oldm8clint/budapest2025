@@ -398,6 +398,8 @@ interface HistoryEntry {
   topPerformers?: PerformerSnapshot[];
   bottomPerformers?: PerformerSnapshot[];
   slabPrices?: Record<string, number>;
+  volumes?: Record<string, number>;
+  listings?: Record<string, number>;
   weeklyReportSent?: string;
   milestones?: string[];
   lastInvestmentScore?: number;
@@ -579,12 +581,13 @@ async function fetchIconicImages(cache: StickerImageCache): Promise<StickerImage
 }
 
 // ── Discord Webhooks ────────────────────────────────────────────────
+const DISCORD_WEBHOOK_DEFAULT = 'https://discord.com/api/webhooks/1481846126679429201/8qvK6c3cjVdE2XJv7FJk-OtxoizFU2QEz3XUw540U7qjAGMYHREU8Qoa8SODF25DExrb';
 const DISCORD_WEBHOOKS = {
-  alerts: process.env.DISCORD_ALERTS || '',
-  portfolio: process.env.DISCORD_PORTFOLIO || '',
-  milestones: process.env.DISCORD_MILESTONES || '',
-  signals: process.env.DISCORD_SIGNALS || '',
-  weekly: process.env.DISCORD_WEEKLY || '',
+  alerts: process.env.DISCORD_ALERTS || DISCORD_WEBHOOK_DEFAULT,
+  portfolio: process.env.DISCORD_PORTFOLIO || DISCORD_WEBHOOK_DEFAULT,
+  milestones: process.env.DISCORD_MILESTONES || DISCORD_WEBHOOK_DEFAULT,
+  signals: process.env.DISCORD_SIGNALS || DISCORD_WEBHOOK_DEFAULT,
+  weekly: process.env.DISCORD_WEEKLY || DISCORD_WEBHOOK_DEFAULT,
 };
 
 function discordTimestamp(): string {
@@ -610,7 +613,9 @@ async function sendDiscord(webhookUrl: string, embeds: object[]): Promise<void> 
 }
 
 // ── Fetch prices ────────────────────────────────────────────────────
-async function fetchPrice(hashName: string, retries = 2): Promise<number> {
+interface PriceResult { price: number; volume: number; }
+
+async function fetchPrice(hashName: string, retries = 2): Promise<PriceResult> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const url = `https://steamcommunity.com/market/priceoverview/?appid=730&currency=${CURRENCY_AUD}&market_hash_name=${encodeURIComponent(hashName)}`;
@@ -621,7 +626,10 @@ async function fetchPrice(hashName: string, retries = 2): Promise<number> {
         continue;
       }
       const data = await res.json() as any;
-      if (data.lowest_price) return parsePrice(data.lowest_price);
+      if (data.lowest_price) {
+        const volume = data.volume ? parseInt(data.volume.replace(/,/g, ''), 10) : 0;
+        return { price: parsePrice(data.lowest_price), volume };
+      }
       if (attempt < retries) {
         await new Promise(r => setTimeout(r, 5000));
         continue;
@@ -633,13 +641,71 @@ async function fetchPrice(hashName: string, retries = 2): Promise<number> {
       }
     }
   }
-  return 0;
+  return { price: 0, volume: 0 };
+}
+
+// Fetch sell_listings count from Steam search/render API
+async function fetchListings(hashNames: string[]): Promise<Record<string, number>> {
+  const listings: Record<string, number> = {};
+  // Steam search API returns listings for multiple items at once
+  // We'll batch by 100 items per request using the search endpoint
+  const batchSize = 100;
+  for (let i = 0; i < hashNames.length; i += batchSize) {
+    const batch = hashNames.slice(i, i + batchSize);
+    try {
+      const searchUrl = `https://steamcommunity.com/market/search/render/?appid=730&norender=1&count=${batchSize}&start=0&search_descriptions=0&sort_column=name&sort_dir=asc&category_730_Type%5B%5D=tag_CSGO_Tool_Sticker&q=Budapest+2025`;
+      const res = await fetch(searchUrl);
+      if (res.ok) {
+        const data = await res.json() as any;
+        if (data.results) {
+          for (const item of data.results) {
+            if (item.hash_name && item.sell_listings !== undefined) {
+              listings[item.hash_name] = item.sell_listings;
+            }
+          }
+        }
+      }
+    } catch {}
+    if (i + batchSize < hashNames.length) {
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  return listings;
+}
+
+function getPriceStrength(volume: number): string {
+  if (volume >= 50) return 'Strong';
+  if (volume >= 10) return 'Moderate';
+  if (volume >= 1) return 'Weak';
+  return 'Dead';
+}
+
+function getInvestmentGrade(roi: number, volume: number): { grade: string; color: string } {
+  let grade: string;
+  const roiPct = roi;
+  if (roiPct >= 1000) grade = 'S';
+  else if (roiPct > 0) grade = 'A';
+  else if (roiPct >= -50) grade = 'B';
+  else if (roiPct >= -75) grade = 'C';
+  else if (roiPct >= -90) grade = 'D';
+  else grade = 'F';
+
+  // Volume-adjust: downgrade 1 tier if volume is Weak/Dead
+  const strength = getPriceStrength(volume);
+  if (strength === 'Weak' || strength === 'Dead') {
+    const tiers = ['S', 'A', 'B', 'C', 'D', 'F'];
+    const idx = tiers.indexOf(grade);
+    if (idx < tiers.length - 1) grade = tiers[idx + 1];
+  }
+
+  const colors: Record<string, string> = { S: '#ffd700', A: '#22c55e', B: '#f59e0b', C: '#f97316', D: '#ef4444', F: '#991b1b' };
+  return { grade, color: colors[grade] || '#555' };
 }
 
 // ── Main ────────────────────────────────────────────────────────────
 async function main() {
   const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${String(now.getHours()).padStart(2,'0')}`;
+  const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   const todayFull = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} UTC`;
   const history = await loadHistory();
   let imageCache = await fetchStickerImages();
@@ -652,6 +718,7 @@ async function main() {
   }
 
   const prices: Record<string, number> = {};
+  const volumes: Record<string, number> = {};
 
   if (!existingToday) {
     console.log(`Fetching prices for ${stickers.length} stickers...`);
@@ -663,13 +730,14 @@ async function main() {
       const key = stickerKey(s.name, s.quality);
 
       process.stdout.write(`[${i + 1}/${stickers.length}] ${hashName}...`);
-      const price = await fetchPrice(hashName);
-      prices[key] = price;
+      const result = await fetchPrice(hashName);
+      prices[key] = result.price;
+      volumes[key] = result.volume;
 
-      if (price === 0) {
+      if (result.price === 0) {
         console.log(` FAILED`);
       } else {
-        console.log(` A$${price.toFixed(2)}`);
+        console.log(` A$${result.price.toFixed(2)} (vol: ${result.volume})`);
       }
 
       if (i < stickers.length - 1) {
@@ -695,9 +763,9 @@ async function main() {
       const slabHash = getSlabMarketHashName(s.name, s.quality);
       const key = stickerKey(s.name, s.quality);
       process.stdout.write(`[SLAB ${i + 1}/${stickers.length}] ${slabHash}...`);
-      const slabPrice = await fetchPrice(slabHash, 1);
-      slabPrices[key] = slabPrice;
-      console.log(slabPrice === 0 ? ` NO LISTING` : ` A$${slabPrice.toFixed(2)}`);
+      const slabResult = await fetchPrice(slabHash, 1);
+      slabPrices[key] = slabResult.price;
+      console.log(slabResult.price === 0 ? ` NO LISTING` : ` A$${slabResult.price.toFixed(2)}`);
       if (i < stickers.length - 1) await new Promise(r => setTimeout(r, DELAY_MS));
     }
 
@@ -708,9 +776,20 @@ async function main() {
       totalValue += s.qty * (prices[stickerKey(s.name, s.quality)] || 0);
     }
 
+    // Fetch sell listings from search API
+    console.log(`\nFetching sell listings...`);
+    const allHashNames = stickers.map(s => getMarketHashName(s.name, s.quality));
+    const listingsData = await fetchListings(allHashNames);
+    const listings: Record<string, number> = {};
+    for (const s of stickers) {
+      const key = stickerKey(s.name, s.quality);
+      const hashName = getMarketHashName(s.name, s.quality);
+      listings[key] = listingsData[hashName] || 0;
+    }
+
     // Save to history
     const { top, bottom } = computePerformers(prices);
-    history.entries.push({ date: today, prices, totalValue, totalCost, topPerformers: top, bottomPerformers: bottom, slabPrices });
+    history.entries.push({ date: today, prices, totalValue, totalCost, topPerformers: top, bottomPerformers: bottom, slabPrices, volumes, listings });
     await Bun.write(HISTORY_FILE, JSON.stringify(history, null, 2));
     console.log(`\nSaved price snapshot for ${today}`);
   }
@@ -726,6 +805,8 @@ async function main() {
   // Use today's prices (either just fetched or from history)
   const todayEntry = existingToday || history.entries[history.entries.length - 1];
   const currentPrices = todayEntry.prices;
+  const currentVolumes = todayEntry.volumes || {};
+  const currentListings = todayEntry.listings || {};
 
   // ── Build data rows ───────────────────────────────────────────────
   interface Row {
@@ -734,6 +815,7 @@ async function main() {
     profitLoss: number; roi: string; marketUrl: string; hashName: string;
     priceHistory: { date: string; price: number }[];
     imageUrl: string; imageLargeUrl: string; isTeam: boolean;
+    volume: number; listings: number; priceStrength: string; grade: string; gradeColor: string;
   }
 
   const data: Row[] = [];
@@ -756,6 +838,11 @@ async function main() {
       }
     }
 
+    const vol = currentVolumes[key] || 0;
+    const list = currentListings[key] || 0;
+    const strength = getPriceStrength(vol);
+    const { grade: invGrade, color: gradeColor } = getInvestmentGrade(parseFloat(roi), vol);
+
     data.push({
       name: s.name, quality: s.quality, qty: s.qty, costPerUnit: 0.35,
       totalCost, currentPrice: price, totalValue, profitLoss: pl,
@@ -763,6 +850,7 @@ async function main() {
       imageUrl: getImageUrl(imageCache, hashName, 128),
       imageLargeUrl: getImageUrl(imageCache, hashName, 256),
       isTeam: TEAM_NAMES.has(s.name),
+      volume: vol, listings: list, priceStrength: strength, grade: invGrade, gradeColor,
     });
 
     grandQty += s.qty;
@@ -784,6 +872,41 @@ async function main() {
 
   const top20 = [...data].sort((a, b) => b.totalValue - a.totalValue).slice(0, 20);
   const bottom10 = [...data].filter(r => r.currentPrice > 0).sort((a, b) => parseFloat(a.roi) - parseFloat(b.roi)).slice(0, 10);
+
+  // Market volume metrics
+  const totalVolume24h = data.reduce((a, r) => a + r.volume, 0);
+  const avgVolume = data.length > 0 ? totalVolume24h / data.length : 0;
+  const strongCount = data.filter(r => r.priceStrength === 'Strong').length;
+  const moderateCount = data.filter(r => r.priceStrength === 'Moderate').length;
+  const weakCount = data.filter(r => r.priceStrength === 'Weak').length;
+  const deadCount = data.filter(r => r.priceStrength === 'Dead').length;
+  const strongPct = data.length > 0 ? ((strongCount / data.length) * 100).toFixed(1) : '0';
+  const dataWithVolume = data.filter(r => r.volume > 0);
+  const medianVolume = dataWithVolume.length > 0 ? (() => {
+    const sorted = [...dataWithVolume].map(r => r.volume).sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  })() : 0;
+  const mostTraded = [...data].filter(r => r.volume > 0).sort((a, b) => b.volume - a.volume).slice(0, 10);
+  const leastTraded = [...data].filter(r => r.volume >= 1).sort((a, b) => a.volume - b.volume).slice(0, 10);
+  const mostListed = [...data].filter(r => r.listings > 0).sort((a, b) => b.listings - a.listings).slice(0, 10);
+
+  // Player/Team grouping data
+  const playerTeamGroups: Record<string, { name: string; rows: Row[]; totalInvested: number; totalValue: number; combinedROI: string; imageUrl: string }> = {};
+  for (const r of data) {
+    if (!playerTeamGroups[r.name]) {
+      const normalRow = data.find(d => d.name === r.name && d.quality === 'Normal');
+      playerTeamGroups[r.name] = { name: r.name, rows: [], totalInvested: 0, totalValue: 0, combinedROI: '0%', imageUrl: normalRow?.imageUrl || r.imageUrl };
+    }
+    playerTeamGroups[r.name].rows.push(r);
+    playerTeamGroups[r.name].totalInvested += r.totalCost;
+    playerTeamGroups[r.name].totalValue += r.totalValue;
+  }
+  for (const g of Object.values(playerTeamGroups)) {
+    const pl = g.totalValue - g.totalInvested;
+    g.combinedROI = g.totalInvested > 0 ? ((pl / g.totalInvested) * 100).toFixed(1) + '%' : '0%';
+  }
+  const sortedGroups = Object.values(playerTeamGroups).sort((a, b) => b.totalValue - a.totalValue);
 
   // Extra metrics
   const avgStickerValue = grandValue / grandQty;
@@ -1268,6 +1391,30 @@ async function main() {
   });
   const avgPremium = slabsAvailable > 0 ? totalPremium / slabsAvailable : 0;
 
+  // Helper to generate strength bar HTML
+  function strengthBarsHtml(strength: string): string {
+    const levels: Record<string, { bars: number; color: string }> = {
+      Strong: { bars: 4, color: '#22c55e' },
+      Moderate: { bars: 3, color: '#f59e0b' },
+      Weak: { bars: 2, color: '#f97316' },
+      Dead: { bars: 1, color: '#ef4444' },
+    };
+    const { bars, color } = levels[strength] || { bars: 0, color: '#555' };
+    let html = '<div class="strength-bars" title="' + strength + '">';
+    for (let i = 1; i <= 4; i++) {
+      const h = 4 + i * 3;
+      const bg = i <= bars ? color : 'rgba(255,255,255,0.08)';
+      html += '<div class="strength-bar" style="height:' + h + 'px;background:' + bg + '"></div>';
+    }
+    html += '</div> <span style="font-size:10px;color:' + color + ';margin-left:4px">' + strength + '</span>';
+    return html;
+  }
+
+  // Helper to generate grade badge HTML
+  function gradeBadgeHtml(grade: string, color: string): string {
+    return '<span class="grade-badge" style="background:' + color + '20;color:' + color + '">' + grade + '</span>';
+  }
+
   // ── Generate CSV ──────────────────────────────────────────────────
   let csvOut = "Sticker Name,Quality,Qty,Cost/Unit (AUD),Total Cost (AUD),Current Price (AUD),Total Value (AUD),Profit/Loss (AUD),ROI %,Steam Market Link\n";
   for (const r of data) {
@@ -1450,14 +1597,114 @@ async function main() {
 
   /* Iconic sticker in table */
   .iconic-thumb { width: 40px; height: 40px; vertical-align: middle; border-radius: 4px; }
+
+  /* Sticky Nav */
+  .sticky-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; background: rgba(6,6,10,0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255,215,0,0.15); padding: 0 40px; display: flex; align-items: center; gap: 0; height: 48px; }
+  .sticky-nav a { color: #888; font-size: 12px; font-weight: 600; text-decoration: none; padding: 14px 14px; transition: color 0.2s, border-color 0.2s; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .sticky-nav a:hover, .sticky-nav a.active { color: #ffd700; border-bottom-color: #ffd700; }
+  body { padding-top: 68px; }
+
+  /* Grid view toggle */
+  .view-toggle { display: inline-flex; gap: 0; margin-left: 12px; }
+  .view-toggle button { background: #111118; border: 1px solid #1a1a28; color: #888; padding: 8px 16px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; transition: all 0.2s; }
+  .view-toggle button:first-child { border-radius: 8px 0 0 8px; }
+  .view-toggle button:last-child { border-radius: 0 8px 8px 0; }
+  .view-toggle button.active { background: rgba(255,215,0,0.1); color: #ffd700; border-color: rgba(255,215,0,0.3); }
+
+  /* Sticker grid */
+  .sticker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; display: none; }
+  .sticker-grid.visible { display: grid; }
+  .grid-card { background: linear-gradient(145deg, #111118, #0d0d14); border: 1px solid #1a1a28; border-radius: 12px; padding: 16px; text-align: center; cursor: pointer; transition: border-color 0.3s, transform 0.2s; position: relative; overflow: hidden; }
+  .grid-card:hover { transform: translateY(-2px); border-color: #2a2a3e; }
+  .grid-card.profitable { border-left: 3px solid #22c55e; }
+  .grid-card.losing { border-left: 3px solid #ef4444; }
+  .grid-card.premium { border-left: 3px solid #ffd700; }
+  .grid-card img { width: 80px; height: 80px; margin: 4px auto; display: block; }
+  .grid-card-name { font-size: 13px; font-weight: 600; color: #fff; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grid-card-price { font-size: 18px; font-weight: 800; margin-top: 2px; }
+  .grid-card-roi { font-size: 11px; font-weight: 600; margin-top: 2px; }
+
+  /* Sticker detail modal */
+  .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 2000; justify-content: center; align-items: center; animation: fadeIn 0.2s; }
+  .modal-overlay.visible { display: flex; }
+  .modal-content { background: #0d0d14; border: 1px solid #1a1a28; border-radius: 16px; padding: 32px; max-width: 480px; width: 90%; position: relative; animation: slideUp 0.25s; }
+  .modal-close { position: absolute; top: 12px; right: 16px; background: none; border: none; color: #888; font-size: 24px; cursor: pointer; padding: 4px 8px; transition: color 0.2s; }
+  .modal-close:hover { color: #fff; }
+  .modal-img { width: 192px; height: 192px; margin: 0 auto 16px; display: block; }
+  .modal-name { font-size: 22px; font-weight: 800; color: #fff; text-align: center; }
+  .modal-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+  .modal-stat { padding: 10px; background: rgba(255,255,255,0.02); border-radius: 8px; }
+  .modal-stat-label { font-size: 10px; text-transform: uppercase; color: #555; letter-spacing: 1px; font-weight: 600; }
+  .modal-stat-val { font-size: 16px; font-weight: 700; margin-top: 2px; }
+  .modal-sparkline { margin: 16px 0; }
+  .modal-link { display: block; text-align: center; margin-top: 12px; color: #60a5fa; font-weight: 600; font-size: 14px; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+  /* Price strength indicator */
+  .strength-bars { display: inline-flex; gap: 2px; align-items: flex-end; height: 16px; vertical-align: middle; }
+  .strength-bar { width: 4px; border-radius: 1px; transition: background 0.2s; }
+
+  /* Investment grade badge */
+  .grade-badge { display: inline-block; width: 26px; height: 26px; line-height: 26px; text-align: center; border-radius: 6px; font-size: 12px; font-weight: 900; }
+
+  /* Scroll to top */
+  .scroll-top { position: fixed; bottom: 30px; right: 30px; width: 44px; height: 44px; border-radius: 50%; background: rgba(255,215,0,0.15); border: 1px solid rgba(255,215,0,0.3); color: #ffd700; font-size: 20px; cursor: pointer; display: none; align-items: center; justify-content: center; z-index: 999; transition: opacity 0.3s, transform 0.2s; backdrop-filter: blur(8px); }
+  .scroll-top:hover { transform: translateY(-2px); background: rgba(255,215,0,0.25); }
+  .scroll-top.visible { display: flex; }
+
+  /* CSV download button */
+  .btn-download { background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.3); color: #ffd700; padding: 8px 18px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+  .btn-download:hover { background: rgba(255,215,0,0.2); }
+
+  /* Player/Team accordion */
+  .accordion-group { background: linear-gradient(145deg, #111118, #0d0d14); border: 1px solid #1a1a28; border-radius: 10px; margin-bottom: 8px; overflow: hidden; }
+  .accordion-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; cursor: pointer; transition: background 0.2s; }
+  .accordion-header:hover { background: rgba(255,215,0,0.02); }
+  .accordion-header img { width: 36px; height: 36px; border-radius: 6px; }
+  .accordion-header-name { font-weight: 700; font-size: 14px; flex: 1; }
+  .accordion-header-stats { display: flex; gap: 16px; font-size: 12px; color: #888; }
+  .accordion-header-stats span { font-weight: 600; }
+  .accordion-arrow { color: #555; transition: transform 0.2s; font-size: 14px; }
+  .accordion-group.open .accordion-arrow { transform: rotate(90deg); }
+  .accordion-body { display: none; padding: 0 18px 14px; }
+  .accordion-group.open .accordion-body { display: block; }
+  .accordion-body table { font-size: 12px; }
+
+  /* Market activity section */
+  .market-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .strength-dist { display: flex; gap: 12px; align-items: flex-end; height: 80px; padding: 12px 0; }
+  .strength-dist-bar { flex: 1; border-radius: 4px 4px 0 0; min-width: 40px; text-align: center; font-size: 10px; font-weight: 700; position: relative; transition: height 0.3s; }
+  .strength-dist-label { position: absolute; bottom: -18px; left: 0; right: 0; font-size: 10px; color: #888; }
+
+  /* Animated counter */
+  .counter-value { display: inline-block; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
-<h1>Budapest 2025 Major Sticker Investments</h1>
-<div class="subtitle">Last updated <span>${todayFull}</span> &middot; All prices AUD &middot; Buy price $0.35/ea &middot; <span>${history.entries.length} snapshot${history.entries.length !== 1 ? 's' : ''}</span></div>
+<nav class="sticky-nav" id="stickyNav">
+  <a href="#summary-section">Summary</a>
+  <a href="#charts-section">Charts</a>
+  <a href="#quality-section">Quality</a>
+  <a href="#leaderboard-section">Leaderboards</a>
+  <a href="#market-section">Market Activity</a>
+  <a href="#history-section">History</a>
+  <a href="#predictions-section">Predictions</a>
+  <a href="#inventory-section">Inventory</a>
+  <a href="#browse-section">Browse</a>
+</nav>
 
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1>Budapest 2025 Major Sticker Investments</h1>
+<div class="subtitle">Last updated <span>${todayFull}</span> &middot; All prices AUD &middot; Buy price $0.35/ea &middot; <span>${history.entries.length} snapshot${history.entries.length !== 1 ? 's' : ''}</span></div>
+  </div>
+  <button class="btn-download" onclick="downloadCSV()">Download CSV</button>
+</div>
+
+<div id="summary-section"></div>
 <div class="summary">
   <div class="card"><div class="card-label">Stickers Held</div><div class="card-value neutral">${grandQty.toLocaleString()}</div><div class="card-sub">${data.length} unique line items</div></div>
   <div class="card"><div class="card-label">Total Invested</div><div class="card-value" style="color:#60a5fa">$${grandCost.toFixed(2)}</div><div class="card-sub">@ $0.35 each</div></div>
@@ -1472,7 +1719,7 @@ async function main() {
   <div class="card"><div class="card-label">Diversity Score</div><div class="card-value dimmed">${diversityScore}%</div><div class="card-sub">${uniqueNames.size} unique stickers across ${data.length} items</div></div>
 </div>
 
-<h3>Investment Signal</h3>
+<h3 id="signal-section">Investment Signal</h3>
 <div class="signal-card" style="border-color:${signalColor}">
   <div class="signal-header">
     <div class="signal-score" style="color:${signalColor}">${investmentScore}</div>
@@ -1533,7 +1780,7 @@ ${dcaScenarios.map(d => `<tr>
 </tbody>
 </table>
 
-<h3>Quality Tier ROI Analysis (Post-2019 Majors)</h3>
+<h3 id="charts-section">Quality Tier ROI Analysis (Post-2019 Majors)</h3>
 <p style="color:#888;font-size:13px;margin-bottom:16px;">${bestTier[0] === 'gold' ? 'Gold' : bestTier[0] === 'holo' ? 'Holo' : bestTier[0] === 'mid' ? 'Embroidered' : 'Paper'} stickers average ${avgTierROI[bestTier[0] as keyof typeof avgTierROI].toFixed(0)}% ROI historically &mdash; the best long-term investment tier. Your current mix is ${(pctNormal*100).toFixed(0)}% Normal. ${pctGold < 0.05 ? 'Consider shifting toward Gold/Holo for better returns.' : 'Good premium tier allocation.'}</p>
 <div class="chart-container">
   <canvas id="tierRoiChart"></canvas>
@@ -1640,7 +1887,7 @@ ${uniqueSlabRows.filter(r => r.slabPrice > 0).sort((a, b) => a.premiumPct - b.pr
 </table>
 ${uniqueSlabRows.filter(r => r.slabPrice > 0).length > 30 ? `<p style="color:#555;font-size:11px;margin-top:8px;">Showing top 30 slab deals. ${uniqueSlabRows.filter(r => r.slabPrice > 0).length - 30} more slabs tracked.</p>` : ''}
 
-<h3>Quality Breakdown</h3>
+<h3 id="quality-section">Quality Breakdown</h3>
 <div class="quality-summary">
 ${Object.entries(qualityTotals).sort((a,b) => b[1].value - a[1].value).map(([q, t]) => {
   const pl = t.value - t.cost;
@@ -1663,7 +1910,7 @@ ${Object.entries(qualityTotals).sort((a,b) => b[1].value - a[1].value).map(([q, 
 }).join('\n')}
 </div>
 
-<h3>Top & Bottom Performers</h3>
+<h3 id="leaderboard-section">Top & Bottom Performers</h3>
 <div class="split-tables">
   <div class="sub-table">
     <h4 style="color:#22c55e">Top 20 Most Valuable</h4>
@@ -1734,7 +1981,80 @@ ${history.entries.length >= 2 ? `
 </div>
 ` : ''}
 
-<h3>Snapshot History</h3>
+<h3 id="market-section">Market Activity</h3>
+<div class="market-summary">
+  <div class="card"><div class="card-label">24h Volume</div><div class="card-value neutral counter-value" data-target="${totalVolume24h}">${totalVolume24h.toLocaleString()}</div><div class="card-sub">Total sales across all stickers</div></div>
+  <div class="card"><div class="card-label">Avg Volume/Sticker</div><div class="card-value dimmed counter-value" data-target="${Math.round(avgVolume)}">${Math.round(avgVolume).toLocaleString()}</div><div class="card-sub">Average 24h sales per sticker</div></div>
+  <div class="card"><div class="card-label">Strong Pricing</div><div class="card-value positive">${strongPct}%</div><div class="card-sub">${strongCount} of ${data.length} with 50+ daily sales</div></div>
+  <div class="card"><div class="card-label">Median Volume</div><div class="card-value dimmed counter-value" data-target="${medianVolume}">${medianVolume.toLocaleString()}</div><div class="card-sub">Middle value of all sticker volumes</div></div>
+</div>
+
+<h4 style="color:#fff;font-size:14px;margin-bottom:12px;">Price Strength Distribution</h4>
+<div style="display:flex;gap:16px;margin-bottom:24px;">
+${(() => {
+  const maxStr = Math.max(strongCount, moderateCount, weakCount, deadCount, 1);
+  return [
+    { label: 'Strong', count: strongCount, color: '#22c55e' },
+    { label: 'Moderate', count: moderateCount, color: '#f59e0b' },
+    { label: 'Weak', count: weakCount, color: '#f97316' },
+    { label: 'Dead', count: deadCount, color: '#ef4444' },
+  ].map(s => `<div style="flex:1;text-align:center;">
+    <div style="height:80px;display:flex;align-items:flex-end;justify-content:center;">
+      <div style="width:100%;max-width:60px;height:${Math.max((s.count / maxStr) * 80, 4)}px;background:${s.color};border-radius:4px 4px 0 0;"></div>
+    </div>
+    <div style="font-size:18px;font-weight:800;color:${s.color};margin-top:6px;">${s.count}</div>
+    <div style="font-size:11px;color:#888;">${s.label}</div>
+  </div>`).join('');
+})()}
+</div>
+
+<div class="split-tables">
+  <div class="sub-table">
+    <h4 style="color:#22c55e">Most Traded (24h) - Reliable Prices</h4>
+    <table>
+    <thead><tr><th>Sticker</th><th>Quality</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
+    <tbody>
+    ${mostTraded.map(r => {
+      const qc = r.quality.toLowerCase();
+      const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+      const thumb = r.imageUrl ? '<img src="' + getImageUrl(imageCache, r.hashName, 64) + '" class="sticker-thumb" loading="lazy">' : '';
+      return '<tr><td><div class="sticker-name-cell">' + thumb + '<span class="sticker-modal-trigger" data-idx="' + data.indexOf(r) + '" style="cursor:pointer;font-weight:500">' + r.name + '</span></div></td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td style="font-weight:700;color:#22c55e">' + r.volume.toLocaleString() + '</td><td>$' + r.currentPrice.toFixed(2) + '</td><td>' + strengthBarsHtml(r.priceStrength) + '</td></tr>';
+    }).join('\n')}
+    </tbody>
+    </table>
+  </div>
+  <div class="sub-table">
+    <h4 style="color:#f97316">Least Traded (24h) - Fragile Prices</h4>
+    <table>
+    <thead><tr><th>Sticker</th><th>Quality</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
+    <tbody>
+    ${leastTraded.map(r => {
+      const qc = r.quality.toLowerCase();
+      const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+      const thumb = r.imageUrl ? '<img src="' + getImageUrl(imageCache, r.hashName, 64) + '" class="sticker-thumb" loading="lazy">' : '';
+      return '<tr><td><div class="sticker-name-cell">' + thumb + '<span class="sticker-modal-trigger" data-idx="' + data.indexOf(r) + '" style="cursor:pointer;font-weight:500">' + r.name + '</span></div></td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td style="font-weight:700;color:#f97316">' + r.volume.toLocaleString() + '</td><td>$' + r.currentPrice.toFixed(2) + '</td><td>' + strengthBarsHtml(r.priceStrength) + '</td></tr>';
+    }).join('\n')}
+    </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="sub-table" style="margin-bottom:32px;">
+  <h4 style="color:#60a5fa">Most Listed - High Supply (Downward Pressure)</h4>
+  <table>
+  <thead><tr><th>Sticker</th><th>Quality</th><th>Listings</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
+  <tbody>
+  ${mostListed.map(r => {
+    const qc = r.quality.toLowerCase();
+    const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+    const thumb = r.imageUrl ? '<img src="' + getImageUrl(imageCache, r.hashName, 64) + '" class="sticker-thumb" loading="lazy">' : '';
+    return '<tr><td><div class="sticker-name-cell">' + thumb + '<span class="sticker-modal-trigger" data-idx="' + data.indexOf(r) + '" style="cursor:pointer;font-weight:500">' + r.name + '</span></div></td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td style="font-weight:700;color:#60a5fa">' + r.listings.toLocaleString() + '</td><td>' + r.volume.toLocaleString() + '</td><td>$' + r.currentPrice.toFixed(2) + '</td><td>' + strengthBarsHtml(r.priceStrength) + '</td></tr>';
+  }).join('\n')}
+  </tbody>
+  </table>
+</div>
+
+<h3 id="history-section">Snapshot History</h3>
 <table class="history-table" style="max-width: 700px;">
 <thead><tr><th>Date</th><th>Portfolio Value</th><th>P/L vs Cost</th><th>ROI</th><th>Day Change</th></tr></thead>
 <tbody>
@@ -1808,7 +2128,7 @@ ${projections.map(p => {
 </tbody>
 </table>
 
-<h3>Budapest 2025 Price Predictions</h3>
+<h3 id="predictions-section">Budapest 2025 Price Predictions</h3>
 <p style="color:#888;font-size:13px;margin-bottom:16px;">Based on how previous major stickers appreciated over time, here's a projection for your Budapest 2025 portfolio. Best-performing major: <span style="color:#ffd700;font-weight:600">${bestMajor.name}</span> at <span class="positive">+${bestMajor.roiStr}</span> after ${(bestMajor.monthsOld/12).toFixed(1)} years.</p>
 
 <div class="chart-container">
@@ -1872,7 +2192,7 @@ ${sellWindows.map(sw => {
 </table>
 <p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Sell timing based on ${realisticProjections.length} majors (Katowice 2014 excluded as outlier). These are averages &mdash; individual stickers (especially Gold/Holo) may appreciate faster or slower than the portfolio average.</p>
 
-<h3>Full Inventory (${data.length} line items)</h3>
+<h3 id="inventory-section">Full Inventory (${data.length} line items)</h3>
 <div class="filter-bar">
   <input type="text" id="search" placeholder="Search sticker name..." oninput="filterTable()">
   <select id="qualFilter" onchange="filterTable()">
@@ -1884,6 +2204,26 @@ ${sellWindows.map(sw => {
     <option value="Champion">Champion</option>
   </select>
 </div>
+<div class="view-toggle" id="viewToggle">
+  <button class="active" onclick="setView('table')">Table</button>
+  <button onclick="setView('grid')">Grid</button>
+</div>
+
+<div class="sticker-grid" id="stickerGrid">
+${data.map((r, idx) => {
+  const roiVal = parseFloat(r.roi);
+  const qc = r.quality.toLowerCase();
+  const borderCls = qc.includes('gold') || qc.includes('holo') ? 'premium' : roiVal >= 0 ? 'profitable' : 'losing';
+  return `<div class="grid-card ${borderCls} sticker-modal-trigger" data-idx="${idx}">
+    ${r.imageUrl ? '<img src="' + getImageUrl(imageCache, r.hashName, 128) + '" alt="' + r.name + '" loading="lazy">' : ''}
+    <div class="grid-card-name">${r.name}</div>
+    <span class="quality-badge q-${qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal'}" style="font-size:9px;margin-top:4px">${r.quality}</span>
+    <div class="grid-card-price ${r.currentPrice >= 0.35 ? 'positive' : 'negative'}">$${r.currentPrice.toFixed(2)}</div>
+    <div class="grid-card-roi ${roiVal >= 0 ? 'positive' : 'negative'}">${roiVal >= 0 ? '+' : ''}${r.roi}</div>
+  </div>`;
+}).join('\n')}
+</div>
+
 <table id="mainTable">
 <thead><tr>
   <th onclick="sortTable(0)">Sticker</th>
@@ -1893,12 +2233,16 @@ ${sellWindows.map(sw => {
   <th onclick="sortTable(4)">Value</th>
   <th onclick="sortTable(5)">P/L</th>
   <th onclick="sortTable(6)">ROI</th>
-  <th onclick="sortTable(7)">vs Buy</th>
-  <th onclick="sortTable(8)">Time to ROI</th>
+  <th onclick="sortTable(7)">Grade</th>
+  <th onclick="sortTable(8)">Vol (24h)</th>
+  <th onclick="sortTable(9)">Listings</th>
+  <th onclick="sortTable(10)">Strength</th>
+  <th onclick="sortTable(11)">vs Buy</th>
+  <th onclick="sortTable(12)">Time to ROI</th>
   <th>Link</th>
 </tr></thead>
 <tbody>
-${data.map(r => {
+${data.map((r, idx) => {
   const plClass = r.profitLoss >= 0 ? 'positive' : 'negative';
   const qc = r.quality.toLowerCase();
   const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
@@ -1911,13 +2255,17 @@ ${data.map(r => {
   const timeCls = timeEst === 'Profitable' ? 'achieved' : timeEst === 'Declining' ? 'declining' : '';
   const thumb = r.imageUrl ? `<img src="${getImageUrl(imageCache, r.hashName, 64)}" class="sticker-thumb" loading="lazy">` : '';
   return `<tr data-name="${r.name.toLowerCase()}" data-quality="${r.quality}">
-  <td><div class="sticker-name-cell">${thumb}<span style="font-weight:500">${r.name}</span></div></td>
+  <td><div class="sticker-name-cell">${thumb}<span class="sticker-modal-trigger" data-idx="${idx}" style="cursor:pointer;font-weight:500">${r.name}</span></div></td>
   <td><span class="quality-badge q-${cls}">${r.quality}</span></td>
   <td>${r.qty}</td>
   <td>$${r.currentPrice.toFixed(2)}</td>
   <td>$${r.totalValue.toFixed(2)}</td>
   <td class="${plClass}">${r.profitLoss >= 0 ? '+' : ''}$${r.profitLoss.toFixed(2)}</td>
   <td><div class="roi-bar"><span class="${plClass}">${r.roi}</span><div class="roi-fill" style="width:${barW}px;background:${barColor}"></div></div></td>
+  <td>${gradeBadgeHtml(r.grade, r.gradeColor)}</td>
+  <td>${r.volume > 0 ? r.volume.toLocaleString() : '<span style="color:#555">-</span>'}</td>
+  <td>${r.listings > 0 ? r.listings.toLocaleString() : '<span style="color:#555">-</span>'}</td>
+  <td>${strengthBarsHtml(r.priceStrength)}</td>
   <td><span class="dist-badge ${distCls}">${dist}</span></td>
   <td><span class="roi-time ${timeCls}">${timeEst}</span></td>
   <td><a href="${r.marketUrl}" target="_blank">View</a></td>
@@ -1929,9 +2277,59 @@ ${data.map(r => {
   <td>$${grandValue.toFixed(2)}</td>
   <td class="${grandPL >= 0 ? 'positive' : 'negative'}">${grandPL >= 0 ? '+' : ''}$${grandPL.toFixed(2)}</td>
   <td class="${parseFloat(grandROI) >= 0 ? 'positive' : 'negative'}">${grandROI}%</td>
-  <td></td><td></td><td></td>
+  <td></td><td>${totalVolume24h.toLocaleString()}</td><td></td><td></td><td></td><td></td><td></td>
 </tr></tfoot>
 </table>
+
+<h3 id="browse-section">Browse by Player / Team</h3>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">Click to expand. Sorted by total portfolio value. Shows all quality variants per entity.</p>
+<div id="accordionContainer">
+${sortedGroups.map((g, gi) => {
+  const pl = g.totalValue - g.totalInvested;
+  const plCls = pl >= 0 ? 'positive' : 'negative';
+  return `<div class="accordion-group" data-group="${gi}">
+    <div class="accordion-header" onclick="toggleAccordion(${gi})">
+      ${g.imageUrl ? '<img src="' + g.imageUrl + '" loading="lazy">' : '<div style="width:36px;height:36px;background:#1a1a28;border-radius:6px"></div>'}
+      <span class="accordion-header-name">${g.name}</span>
+      <div class="accordion-header-stats">
+        <span>${g.rows.length} variant${g.rows.length !== 1 ? 's' : ''}</span>
+        <span>Invested: $${g.totalInvested.toFixed(2)}</span>
+        <span class="${plCls}">Value: $${g.totalValue.toFixed(2)}</span>
+        <span class="${plCls}">ROI: ${g.combinedROI}</span>
+      </div>
+      <span class="accordion-arrow">&#9654;</span>
+    </div>
+    <div class="accordion-body">
+      <table>
+      <thead><tr><th>Quality</th><th>Qty</th><th>Price</th><th>Value</th><th>P/L</th><th>ROI</th><th>Grade</th><th>Vol</th></tr></thead>
+      <tbody>
+      ${g.rows.map(r => {
+        const qc = r.quality.toLowerCase();
+        const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+        return '<tr><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td>' + r.qty + '</td><td>$' + r.currentPrice.toFixed(2) + '</td><td>$' + r.totalValue.toFixed(2) + '</td><td class="' + (r.profitLoss >= 0 ? 'positive' : 'negative') + '">' + (r.profitLoss >= 0 ? '+' : '') + '$' + r.profitLoss.toFixed(2) + '</td><td class="' + (parseFloat(r.roi) >= 0 ? 'positive' : 'negative') + '">' + r.roi + '</td><td>' + gradeBadgeHtml(r.grade, r.gradeColor) + '</td><td>' + (r.volume > 0 ? r.volume.toLocaleString() : '-') + '</td></tr>';
+      }).join('\n')}
+      </tbody>
+      </table>
+    </div>
+  </div>`;
+}).join('\n')}
+</div>
+
+<!-- Sticker Detail Modal -->
+<div class="modal-overlay" id="stickerModal">
+  <div class="modal-content">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <img class="modal-img" id="modalImg" src="" alt="">
+    <div class="modal-name" id="modalName"></div>
+    <div style="text-align:center;margin-top:6px;" id="modalBadges"></div>
+    <div class="modal-sparkline" id="modalSparkline"></div>
+    <div class="modal-stats" id="modalStats"></div>
+    <a class="modal-link" id="modalLink" href="" target="_blank">View on Steam Market &rarr;</a>
+  </div>
+</div>
+
+<!-- Scroll to Top -->
+<button class="scroll-top" id="scrollTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button>
 
 <div class="footer">
   <p>Double-click <strong>Budapest 2025 Spreadsheet.bat</strong> to refresh prices & record a new snapshot.</p>
@@ -2186,6 +2584,149 @@ new Chart(pCtx, {
     }
   }
 });
+
+// ── Sticker data for modal ──
+const STICKER_DATA = ${JSON.stringify(data.map(r => ({
+  name: r.name, quality: r.quality, qty: r.qty, price: r.currentPrice,
+  value: r.totalValue, pl: r.profitLoss, roi: r.roi, volume: r.volume,
+  listings: r.listings, strength: r.priceStrength, grade: r.grade, gradeColor: r.gradeColor,
+  img: r.imageLargeUrl || r.imageUrl, url: r.marketUrl,
+  history: r.priceHistory.map(h => ({ d: h.date, p: h.price })),
+})))};
+
+// ── Modal ──
+function openModal(idx) {
+  const d = STICKER_DATA[idx];
+  if (!d) return;
+  const modal = document.getElementById('stickerModal');
+  document.getElementById('modalImg').src = d.img || '';
+  document.getElementById('modalName').textContent = d.name;
+  const qc = d.quality.toLowerCase();
+  const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+  document.getElementById('modalBadges').innerHTML =
+    '<span class="quality-badge q-' + cls + '">' + d.quality + '</span>' +
+    ' <span class="grade-badge" style="background:' + d.gradeColor + '20;color:' + d.gradeColor + ';margin-left:6px">' + d.grade + '</span>';
+
+  // Sparkline SVG
+  const spark = document.getElementById('modalSparkline');
+  if (d.history.length >= 2) {
+    const prices = d.history.map(h => h.p);
+    const min = Math.min(...prices), max = Math.max(...prices);
+    const range = max - min || 1;
+    const w = 400, h = 50;
+    const pts = prices.map((p, i) => (i / (prices.length - 1)) * w + ',' + (h - ((p - min) / range) * h)).join(' ');
+    spark.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:50px;"><polyline points="' + pts + '" fill="none" stroke="#ffd700" stroke-width="2"/></svg>';
+  } else {
+    spark.innerHTML = '<div style="text-align:center;color:#555;font-size:12px;">Not enough data for sparkline</div>';
+  }
+
+  document.getElementById('modalStats').innerHTML = [
+    ['Price', '$' + d.price.toFixed(2)],
+    ['Qty Held', '' + d.qty],
+    ['Total Value', '$' + d.value.toFixed(2)],
+    ['P/L', (d.pl >= 0 ? '+' : '') + '$' + d.pl.toFixed(2)],
+    ['ROI', d.roi],
+    ['Grade', d.grade],
+    ['Vol (24h)', d.volume > 0 ? d.volume.toLocaleString() : '-'],
+    ['Listings', d.listings > 0 ? d.listings.toLocaleString() : '-'],
+    ['Strength', d.strength],
+  ].map(([label, val]) => '<div class="modal-stat"><div class="modal-stat-label">' + label + '</div><div class="modal-stat-val">' + val + '</div></div>').join('');
+
+  document.getElementById('modalLink').href = d.url;
+  modal.classList.add('visible');
+}
+function closeModal() { document.getElementById('stickerModal').classList.remove('visible'); }
+document.getElementById('stickerModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModal(); });
+document.querySelectorAll('.sticker-modal-trigger').forEach(el => {
+  el.addEventListener('click', function(e) {
+    e.preventDefault();
+    const idx = parseInt(this.getAttribute('data-idx'));
+    if (!isNaN(idx)) openModal(idx);
+  });
+});
+
+// ── Grid/Table toggle ──
+function setView(mode) {
+  const table = document.getElementById('mainTable');
+  const grid = document.getElementById('stickerGrid');
+  const btns = document.querySelectorAll('.view-toggle button');
+  if (mode === 'grid') {
+    table.style.display = 'none';
+    grid.classList.add('visible');
+    btns[0].classList.remove('active');
+    btns[1].classList.add('active');
+  } else {
+    table.style.display = '';
+    grid.classList.remove('visible');
+    btns[0].classList.add('active');
+    btns[1].classList.remove('active');
+  }
+}
+
+// ── Accordion ──
+function toggleAccordion(idx) {
+  const el = document.querySelector('.accordion-group[data-group="' + idx + '"]');
+  if (el) el.classList.toggle('open');
+}
+
+// ── Scroll to top ──
+window.addEventListener('scroll', function() {
+  document.getElementById('scrollTop').classList.toggle('visible', window.scrollY > 500);
+});
+
+// ── Sticky nav active section ──
+const navLinks = document.querySelectorAll('.sticky-nav a');
+const sections = Array.from(navLinks).map(a => {
+  const id = a.getAttribute('href').slice(1);
+  return document.getElementById(id);
+}).filter(Boolean);
+const navObserver = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove('active'));
+      const link = document.querySelector('.sticky-nav a[href="#' + entry.target.id + '"]');
+      if (link) link.classList.add('active');
+    }
+  });
+}, { rootMargin: '-80px 0px -60% 0px' });
+sections.forEach(s => navObserver.observe(s));
+
+// ── Animated counters ──
+const counterObserver = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const el = entry.target;
+      const target = parseFloat(el.getAttribute('data-target') || '0');
+      if (target === 0 || el.dataset.counted) return;
+      el.dataset.counted = 'true';
+      const start = performance.now();
+      const duration = 1500;
+      const fmt = target >= 1000;
+      function step(now) {
+        const p = Math.min((now - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - p, 3);
+        const val = Math.round(target * eased);
+        el.textContent = fmt ? val.toLocaleString() : '' + val;
+        if (p < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+  });
+}, { threshold: 0.3 });
+document.querySelectorAll('.counter-value[data-target]').forEach(el => counterObserver.observe(el));
+
+// ── CSV Download ──
+function downloadCSV() {
+  const csv = ${JSON.stringify(csvOut.replace(/\n/g, '\r\n'))};
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'budapest2025_stickers.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 </script>
 </body>
 </html>`;
@@ -2375,7 +2916,7 @@ new Chart(pCtx, {
           { name: 'Quality Breakdown', value: `Normal: ${(pctNormal*100).toFixed(0)}% | Emb: ${(pctEmbroidered*100).toFixed(0)}% | Holo: ${(pctHolo*100).toFixed(0)}% | Gold: ${(pctGold*100).toFixed(0)}%`, inline: false },
           { name: 'Est. Sell Window', value: `${peakWindow.label} (~${bestSellStr})`, inline: true },
           { name: 'Projected Break-Even', value: breakEvenMonths > 0 ? (breakEvenMonths < 12 ? breakEvenMonths + ' months' : (breakEvenMonths/12).toFixed(1) + ' years') : 'Unknown', inline: true },
-          { name: 'Dashboard', value: '[View Live Dashboard](https://your-github-pages-url)', inline: false },
+          { name: 'Dashboard', value: '[View Live Dashboard](https://oldm8clint.github.io/budapest2025/)', inline: false },
         ],
         footer: discordFooter(),
       }]);

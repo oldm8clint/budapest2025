@@ -448,7 +448,8 @@
           "quality": "Normal",
           "price": 0.03
         }
-      ]
+      ],
+      "slabPrices": {}
     }
   ]
 }
