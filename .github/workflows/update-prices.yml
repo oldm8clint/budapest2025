@@ -2,8 +2,9 @@ name: Update Sticker Prices
 
 on:
   schedule:
-    # Run daily at 10:00 UTC (8:00 PM AEST)
-    - cron: '0 10 * * *'
+    - cron: '0 2 * * *'   # 12:00 PM AEST
+    - cron: '0 10 * * *'  # 8:00 PM AEST
+    - cron: '0 18 * * *'  # 4:00 AM AEST
   workflow_dispatch: # Manual trigger
 
 permissions:
@@ -24,11 +25,17 @@ jobs:
 
       - name: Fetch prices and build HTML
         run: bun tracker.ts
+        env:
+          DISCORD_ALERTS: ${{ secrets.DISCORD_ALERTS }}
+          DISCORD_PORTFOLIO: ${{ secrets.DISCORD_PORTFOLIO }}
+          DISCORD_MILESTONES: ${{ secrets.DISCORD_MILESTONES }}
+          DISCORD_SIGNALS: ${{ secrets.DISCORD_SIGNALS }}
+          DISCORD_WEEKLY: ${{ secrets.DISCORD_WEEKLY }}
 
       - name: Commit updated files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add index.html sticker_price_history.json budapest2025_stickers.csv
-          git diff --staged --quiet || git commit -m "Update prices $(date -u +%Y-%m-%d)"
+          git add index.html sticker_price_history.json budapest2025_stickers.csv sticker_images.json
+          git diff --staged --quiet || git commit -m "Update prices $(date -u +%Y-%m-%d-%H%M)"
           git push

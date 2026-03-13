@@ -344,7 +344,111 @@
         "zweih|||Normal": 0.03
       },
       "totalValue": 277.4800000000004,
-      "totalCost": 392.7
+      "totalCost": 392.7,
+      "topPerformers": [
+        {
+          "name": "C4LLM3SU3",
+          "quality": "Gold",
+          "price": 42.68
+        },
+        {
+          "name": "lux",
+          "quality": "Gold",
+          "price": 36.41
+        },
+        {
+          "name": "HooXi",
+          "quality": "Gold",
+          "price": 14.6
+        },
+        {
+          "name": "Lucky",
+          "quality": "Gold",
+          "price": 14.26
+        },
+        {
+          "name": "m0NESY",
+          "quality": "Holo",
+          "price": 12.09
+        },
+        {
+          "name": "nin9",
+          "quality": "Holo",
+          "price": 11.5
+        },
+        {
+          "name": "C4LLM3SU3",
+          "quality": "Holo",
+          "price": 10.84
+        },
+        {
+          "name": "Starry",
+          "quality": "Holo",
+          "price": 8.29
+        },
+        {
+          "name": "arT",
+          "quality": "Gold",
+          "price": 7.55
+        },
+        {
+          "name": "Aurora",
+          "quality": "Holo",
+          "price": 7.45
+        }
+      ],
+      "bottomPerformers": [
+        {
+          "name": "910",
+          "quality": "Normal",
+          "price": 0.03
+        },
+        {
+          "name": "Aleksib",
+          "quality": "Normal",
+          "price": 0.03
+        },
+        {
+          "name": "Astralis",
+          "quality": "Normal",
+          "price": 0.03
+        },
+        {
+          "name": "Aurora",
+          "quality": "Normal",
+          "price": 0.03
+        },
+        {
+          "name": "B8",
+          "quality": "Normal",
+          "price": 0.03
+        },
+        {
+          "name": "BELCHONOKK",
+          "quality": "Normal",
+          "price": 0.03
+        },
+        {
+          "name": "Bart4k",
+          "quality": "Normal",
+          "price": 0.03
+        },
+        {
+          "name": "Brollan",
+          "quality": "Embroidered",
+          "price": 0.03
+        },
+        {
+          "name": "Brollan",
+          "quality": "Normal",
+          "price": 0.03
+        },
+        {
+          "name": "Cypher",
+          "quality": "Normal",
+          "price": 0.03
+        }
+      ]
     }
   ]
 }
