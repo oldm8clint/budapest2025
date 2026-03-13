@@ -1035,7 +1035,7 @@ async function main() {
   const playerROI = playerStats.invested > 0 ? ((playerStats.value - playerStats.invested) / playerStats.invested * 100).toFixed(1) : '0';
 
   // Featured stickers (top 5 by value)
-  const featured = [...data].filter(r => r.currentPrice > 0 && r.imageUrl).sort((a, b) => b.currentPrice - a.currentPrice).slice(0, 5);
+  const featured = [...data].filter(r => r.currentPrice > 0 && r.imageUrl).sort((a, b) => b.currentPrice - a.currentPrice).slice(0, 12);
 
   // Price distribution histogram bins
   const priceBins = [
@@ -1363,28 +1363,6 @@ async function main() {
   };
   const bestTier = Object.entries(avgTierROI).sort((a, b) => b[1] - a[1])[0];
 
-  // ── DCA Calculator ────────────────────────────────────────────────
-  const dcaScenarios = [50, 100, 250, 500].map(amount => {
-    const avgPrice = grandValue / grandQty;
-    const newStickers = Math.floor(amount / avgPrice);
-    const newTotal = grandValue + amount;
-    const newCost = grandCost + amount;
-    const newBreakEven = newCost / (grandQty + newStickers);
-    // Conservative: avg of last 4 majors ROI; Best: best major ROI (excluding Katowice 2014)
-    const conservativeROI = projections.filter(p => recentMajors.has(p.name)).reduce((a, p) => a + p.roi, 0) / 4;
-    const bestCaseROI = projections.filter(p => p.name !== 'Katowice 2014').reduce((max, p) => Math.max(max, p.roi), 0);
-    return {
-      amount,
-      newStickers,
-      newTotal,
-      newCost,
-      newBreakEven,
-      projected2yr: newCost * (1 + (conservativeROI * 0.3) / 100),
-      projected5yr: newCost * (1 + conservativeROI / 100),
-      bestCase5yr: newCost * (1 + bestCaseROI / 100),
-    };
-  });
-
   // ── Risk Assessment ───────────────────────────────────────────────
   const top5Value = [...data].sort((a, b) => b.totalValue - a.totalValue).slice(0, 5).reduce((a, r) => a + r.totalValue, 0);
   const concentrationPct = (top5Value / grandValue) * 100;
@@ -1519,7 +1497,12 @@ async function main() {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Budapest 2025 Sticker Investment Tracker</title>
+<link rel="icon" type="image/webp" href="https://cdn.csgoskins.gg/public/uih/tournaments/aHR0cHM6Ly9jc2dvc2tpbnMuZ2cvYnVpbGQvYXNzZXRzLzIwMjUtc3RhcmxhZGRlci1idWRhcGVzdC1ESnM3aFlfdi5wbmc-/auto/auto/85/notrim/eec62b9fb416cc1a7052736b519b8499.webp">
+<meta property="og:title" content="Budapest 2025 Sticker Investment Tracker">
+<meta property="og:description" content="Live tracking of CS2 Budapest 2025 Major sticker investments - updated 6x daily">
+<meta property="og:image" content="https://cdn.csgoskins.gg/public/uih/tournaments/aHR0cHM6Ly9jc2dvc2tpbnMuZ2cvYnVpbGQvYXNzZXRzLzIwMjUtc3RhcmxhZGRlci1idWRhcGVzdC1ESnM3aFlfdi5wbmc-/auto/auto/85/notrim/eec62b9fb416cc1a7052736b519b8499.webp">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1678,9 +1661,6 @@ async function main() {
   /* Slab table */
   .slab-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
 
-  /* DCA table */
-  .dca-table { max-width: 900px; }
-  .dca-table td, .dca-table th { padding: 10px 14px; }
 
   /* Market cycle */
   .cycle-callout { background: linear-gradient(145deg, #111118, #0d0d14); border-left: 3px solid #ffd700; border-radius: 0 12px 12px 0; padding: 16px 20px; margin-bottom: 24px; font-size: 13px; color: #aaa; }
@@ -1853,24 +1833,6 @@ async function main() {
   </div>
 </div>
 
-<h3>Dollar-Cost Averaging Calculator</h3>
-<p style="color:#888;font-size:13px;margin-bottom:16px;">What if you invested more? Projections based on current avg price of $${(grandValue / grandQty).toFixed(3)}/sticker. Conservative = avg of last 4 majors, Best case = top major (excl. Katowice 2014).</p>
-<table class="history-table dca-table">
-<thead><tr><th>Additional $</th><th>New Stickers</th><th>New Portfolio</th><th>New Cost</th><th>Break-Even/ea</th><th>Projected 2yr</th><th>Projected 5yr</th><th>Best Case 5yr</th></tr></thead>
-<tbody>
-${dcaScenarios.map(d => `<tr>
-  <td style="font-weight:600;color:#60a5fa">+$${d.amount}</td>
-  <td>~${d.newStickers}</td>
-  <td>$${d.newTotal.toFixed(2)}</td>
-  <td>$${d.newCost.toFixed(2)}</td>
-  <td>$${d.newBreakEven.toFixed(3)}</td>
-  <td class="${d.projected2yr >= d.newCost ? 'positive' : 'negative'}">$${d.projected2yr.toFixed(2)}</td>
-  <td class="${d.projected5yr >= d.newCost ? 'positive' : 'negative'}">$${d.projected5yr.toFixed(2)}</td>
-  <td class="positive">$${d.bestCase5yr.toFixed(2)}</td>
-</tr>`).join('\n')}
-</tbody>
-</table>
-
 <h3 id="charts-section">Quality Tier ROI Analysis (Post-2019 Majors)</h3>
 <p style="color:#888;font-size:13px;margin-bottom:16px;">${bestTier[0] === 'gold' ? 'Gold' : bestTier[0] === 'holo' ? 'Holo' : bestTier[0] === 'mid' ? 'Embroidered' : 'Paper'} stickers average ${avgTierROI[bestTier[0] as keyof typeof avgTierROI].toFixed(0)}% ROI historically &mdash; the best long-term investment tier. Your current mix is ${(pctNormal*100).toFixed(0)}% Normal. ${pctGold < 0.05 ? 'Consider shifting toward Gold/Holo for better returns.' : 'Good premium tier allocation.'}</p>
 <div class="chart-container">
@@ -1964,8 +1926,10 @@ ${slabsCheaper > 0 ? `<p style="color:#22c55e;font-size:13px;margin-bottom:16px;
 ${uniqueSlabRows.filter(r => r.slabPrice > 0).sort((a, b) => a.premiumPct - b.premiumPct).slice(0, 30).map(r => {
   const qc = r.quality.toLowerCase();
   const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+  const slabDataRow = data.find(d => d.name === r.name && d.quality === r.quality);
+  const slabThumb = slabDataRow?.imageUrl ? '<img src="' + getImageUrl(imageCache, slabDataRow.hashName, 64) + '" class="sticker-thumb" loading="lazy">' : '';
   return `<tr>
-    <td style="font-weight:500">${r.name}</td>
+    <td><div class="sticker-name-cell">${slabThumb}<span style="font-weight:500">${r.name}</span></div></td>
     <td><span class="quality-badge q-${cls}">${r.quality}</span></td>
     <td>$${r.stickerPrice.toFixed(2)}</td>
     <td>$${r.fiveXPrice.toFixed(2)}</td>
