@@ -1168,10 +1168,15 @@ async function main() {
     { name: "Stockholm 2021", date: "2021-11-07", monthsOld: monthsSince("2021-11-07"), avgPaper: 0.26, avgMidTier: 6.53, avgHolo: 11.16, avgGold: 58.56 },
     { name: "Antwerp 2022", date: "2022-05-22", monthsOld: monthsSince("2022-05-22"), avgPaper: 0.13, avgMidTier: 0.13, avgHolo: 17.72, avgGold: 40.34 },
     { name: "Rio 2022", date: "2022-11-13", monthsOld: monthsSince("2022-11-13"), avgPaper: 0.24, avgMidTier: 0.24, avgHolo: 7.62, avgGold: 41.40 },
-    { name: "Paris 2023", date: "2023-05-21", monthsOld: monthsSince("2023-05-21"), avgPaper: 0.09, avgMidTier: 0.47, avgHolo: 7.16, avgGold: 22.46 },
-    { name: "Copenhagen 2024", date: "2024-03-31", monthsOld: monthsSince("2024-03-31"), avgPaper: 0.08, avgMidTier: 1.39, avgHolo: 14.90, avgGold: 25.86 },
-    { name: "Shanghai 2024", date: "2024-12-15", monthsOld: monthsSince("2024-12-15"), avgPaper: 0.06, avgMidTier: 0.77, avgHolo: 14.50, avgGold: 19.61 },
-    { name: "Austin 2025", date: "2025-06-15", monthsOld: monthsSince("2025-06-15"), avgPaper: 0.22, avgMidTier: 0.22, avgHolo: 10.40, avgGold: 26.79 },
+    // Last 4 majors — updated with researched prices (March 2026, AUD ≈ 1.55x USD)
+    // Paris 2023: 30mo post-removal, worst investment ever ($110M sales, 377K listings). Capsules $0.07-$0.09 USD
+    { name: "Paris 2023", date: "2023-05-21", monthsOld: monthsSince("2023-05-21"), avgPaper: 0.14, avgMidTier: 0.73, avgHolo: 11.10, avgGold: 34.81 },
+    // Copenhagen 2024: 18mo post-removal, first CS2 major. Capsules $0.42-$0.71 USD, donk Gold ~$111 USD
+    { name: "Copenhagen 2024", date: "2024-03-31", monthsOld: monthsSince("2024-03-31"), avgPaper: 0.12, avgMidTier: 2.15, avgHolo: 23.10, avgGold: 172.73 },
+    // Shanghai 2024: 11mo post-removal, only 20% of Paris volume. Capsules $0.39-$0.59 USD, donk Gold ~$62 USD
+    { name: "Shanghai 2024", date: "2024-12-15", monthsOld: monthsSince("2024-12-15"), avgPaper: 0.09, avgMidTier: 1.19, avgHolo: 22.48, avgGold: 96.10 },
+    // Austin 2025: 5mo post-removal, shortest sale (48 days). Capsules $0.27-$0.41 USD, 121K listings
+    { name: "Austin 2025", date: "2025-06-15", monthsOld: monthsSince("2025-06-15"), avgPaper: 0.05, avgMidTier: 0.34, avgHolo: 16.12, avgGold: 41.54 },
   ];
 
   // User's quality distribution
@@ -1230,8 +1235,8 @@ async function main() {
   // Use historical data points (months vs weighted ROI) to project future values
   // Bias towards last 4 majors (most relevant for modern CS2 economy)
   const recentMajors = new Set(["Paris 2023", "Copenhagen 2024", "Shanghai 2024", "Austin 2025"]);
-  const KATOWICE_2014_WEIGHT = 0.03; // Heavy de-weight Katowice 2014 (extreme outlier, not realistic for modern majors)
-  const RECENCY_BOOST = 3; // 3x weight for last 4 majors
+  const KATOWICE_2014_WEIGHT = 0.02; // Heavy de-weight Katowice 2014 (extreme outlier, not realistic for modern majors)
+  const RECENCY_BOOST = 5; // 5x weight for last 4 majors (data-driven short-term predictions)
   // 2-week intervals for first year, monthly for year 2, then quarterly/yearly out to 12 years
   const timePoints = [
     0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12,
