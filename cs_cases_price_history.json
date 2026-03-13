@@ -1,0 +1,117 @@
+{
+  "entries": [
+    {
+      "date": "2026-03-13-12",
+      "cases": {
+        "CS:GO Weapon Case": {
+          "price": 318.03,
+          "volume": 39,
+          "listings": 35833
+        },
+        "eSports 2013 Case": {
+          "price": 119.85,
+          "volume": 3,
+          "listings": 35833
+        },
+        "Operation Breakout Case": {
+          "price": 0,
+          "volume": 0,
+          "listings": 0
+        },
+        "Chroma Case": {
+          "price": 9.85,
+          "volume": 747,
+          "listings": 35833
+        },
+        "Falchion Case": {
+          "price": 3.53,
+          "volume": 4123,
+          "listings": 35833
+        },
+        "Shadow Case": {
+          "price": 3.45,
+          "volume": 2407,
+          "listings": 35833
+        },
+        "Gamma Case": {
+          "price": 7.27,
+          "volume": 2317,
+          "listings": 35833
+        },
+        "Glove Case": {
+          "price": 29.95,
+          "volume": 2122,
+          "listings": 35833
+        },
+        "Horizon Case": {
+          "price": 3.23,
+          "volume": 6716,
+          "listings": 35833
+        },
+        "Prisma Case": {
+          "price": 2.73,
+          "volume": 7853,
+          "listings": 35833
+        },
+        "Shattered Web Case": {
+          "price": 12.28,
+          "volume": 686,
+          "listings": 35833
+        },
+        "Broken Fang Case": {
+          "price": 0,
+          "volume": 0,
+          "listings": 0
+        },
+        "Dreams & Nightmares Case": {
+          "price": 2.64,
+          "volume": 197751,
+          "listings": 35833
+        },
+        "Fracture Case": {
+          "price": 1.1,
+          "volume": 79411,
+          "listings": 35833
+        },
+        "Ancient Case": {
+          "price": 0,
+          "volume": 0,
+          "listings": 0
+        }
+      },
+      "portfolio": {
+        "totalCost": 372.5899999999999,
+        "totalValue": 10021.739999999998,
+        "totalProfitLoss": 9649.149999999998,
+        "overallROI": "2589.8",
+        "byTier": {
+          "Tier 1": {
+            "cost": 320.15,
+            "value": 8573.369999999999,
+            "roi": "2577.9"
+          },
+          "Tier 2": {
+            "cost": 24.7,
+            "value": 319.77,
+            "roi": "1194.6"
+          },
+          "Tier 3": {
+            "cost": 14.25,
+            "value": 768.55,
+            "roi": "5293.3"
+          },
+          "Tier 4": {
+            "cost": 8.93,
+            "value": 287.46999999999997,
+            "roi": "3119.1"
+          },
+          "Tier 5": {
+            "cost": 4.5600000000000005,
+            "value": 72.58,
+            "roi": "1491.7"
+          }
+        }
+      }
+    }
+  ]
+}

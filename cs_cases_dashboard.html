@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS2 Cases Portfolio Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', Arial, sans-serif; background: #1b2838; color: #c6d4df; padding: 20px; }
+  .container { max-width: 1400px; margin: 0 auto; }
+
+  h1 { color: #fff; font-size: 32px; margin-bottom: 8px; }
+  .subtitle { color: #8f98a0; margin-bottom: 24px; }
+
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .card { background: rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.3); border-radius: 4px; padding: 16px; }
+  .card-label { color: #8f98a0; font-size: 11px; text-transform: uppercase; margin-bottom: 8px; }
+  .card-value { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+  .card-sub { color: #8f98a0; font-size: 12px; }
+
+  .positive { color: #5ba32b; }
+  .negative { color: #c33c3c; }
+
+  h2 { color: #fff; font-size: 20px; margin: 32px 0 16px; }
+
+  .tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .tier-card { background: rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.3); border-radius: 4px; padding: 16px; }
+  .tier-header { font-size: 14px; font-weight: 700; color: #66c0f4; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(0,0,0,0.3); }
+  .tier-stats { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+  .tier-stats div { display: flex; justify-content: space-between; }
+  .tier-stats span { color: #8f98a0; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 12px; }
+  th { background: #1a3a52; color: #8f98a0; padding: 10px 8px; text-align: left; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid #0e1a26; }
+  td { padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.2); }
+  tr:hover { background: rgba(103,193,245,0.03); }
+  a { color: #67c1f5; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .footer { text-align: center; color: #8f98a0; font-size: 12px; margin-top: 40px; padding-top: 20px; border-top: 1px solid rgba(0,0,0,0.3); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎮 CS2 Cases Portfolio Tracker</h1>
+  <p class="subtitle">Tracking 95 cases (19 per tier) across age spectrum | Updated 2026-03-13 12:59 UTC</p>
+
+  <div class="summary">
+    <div class="card">
+      <div class="card-label">Total Invested</div>
+      <div class="card-value">A$373</div>
+      <div class="card-sub">95 cases total</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Portfolio Value</div>
+      <div class="card-value positive">A$10022</div>
+      <div class="card-sub">current market prices</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Profit/Loss</div>
+      <div class="card-value positive">A$+9649</div>
+      <div class="card-sub">2589.8% ROI</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Portfolio Snapshot</div>
+      <div class="card-value">#1</div>
+      <div class="card-sub">total updates</div>
+    </div>
+  </div>
+
+  <h2>By Tier Performance</h2>
+  <div class="tier-grid">
+    
+        <div class="tier-card">
+          <div class="tier-header">Tier 1</div>
+          <div class="tier-stats">
+            <div><span>Invested:</span> <strong>A$320.15</strong></div>
+            <div><span>Value:</span> <strong class="positive">A$8573.37</strong></div>
+            <div><span>ROI:</span> <strong class="positive">2577.9%</strong></div>
+          </div>
+        </div>
+      
+        <div class="tier-card">
+          <div class="tier-header">Tier 2</div>
+          <div class="tier-stats">
+            <div><span>Invested:</span> <strong>A$24.70</strong></div>
+            <div><span>Value:</span> <strong class="positive">A$319.77</strong></div>
+            <div><span>ROI:</span> <strong class="positive">1194.6%</strong></div>
+          </div>
+        </div>
+      
+        <div class="tier-card">
+          <div class="tier-header">Tier 3</div>
+          <div class="tier-stats">
+            <div><span>Invested:</span> <strong>A$14.25</strong></div>
+            <div><span>Value:</span> <strong class="positive">A$768.55</strong></div>
+            <div><span>ROI:</span> <strong class="positive">5293.3%</strong></div>
+          </div>
+        </div>
+      
+        <div class="tier-card">
+          <div class="tier-header">Tier 4</div>
+          <div class="tier-stats">
+            <div><span>Invested:</span> <strong>A$8.93</strong></div>
+            <div><span>Value:</span> <strong class="positive">A$287.47</strong></div>
+            <div><span>ROI:</span> <strong class="positive">3119.1%</strong></div>
+          </div>
+        </div>
+      
+        <div class="tier-card">
+          <div class="tier-header">Tier 5</div>
+          <div class="tier-stats">
+            <div><span>Invested:</span> <strong>A$4.56</strong></div>
+            <div><span>Value:</span> <strong class="positive">A$72.58</strong></div>
+            <div><span>ROI:</span> <strong class="positive">1491.7%</strong></div>
+          </div>
+        </div>
+      
+  </div>
+
+  <h2>Full Case Inventory (15 cases)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Case Name</th>
+        <th>Tier</th>
+        <th>Qty</th>
+        <th>Price</th>
+        <th>Cost</th>
+        <th>Value</th>
+        <th>ROI</th>
+        <th>Vol</th>
+        <th>Listings</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/CS%3AGO%20Weapon%20Case" target="_blank">CS:GO Weapon Case</a></td>
+        <td>T1</td>
+        <td>19</td>
+        <td>A$318.03</td>
+        <td>A$28.50</td>
+        <td class="positive">A$6042.57</td>
+        <td class="positive">+21102.0%</td>
+        <td>39</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/eSports%202013%20Case" target="_blank">eSports 2013 Case</a></td>
+        <td>T1</td>
+        <td>19</td>
+        <td>A$119.85</td>
+        <td>A$38.00</td>
+        <td class="positive">A$2277.15</td>
+        <td class="positive">+5892.5%</td>
+        <td>3</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Operation%20Breakout%20Case" target="_blank">Operation Breakout Case</a></td>
+        <td>T1</td>
+        <td>19</td>
+        <td>A$13.35</td>
+        <td>A$253.65</td>
+        <td class="positive">A$253.65</td>
+        <td class="positive">+0.0%</td>
+        <td>0</td>
+        <td>0</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Chroma%20Case" target="_blank">Chroma Case</a></td>
+        <td>T2</td>
+        <td>19</td>
+        <td>A$9.85</td>
+        <td>A$9.50</td>
+        <td class="positive">A$187.15</td>
+        <td class="positive">+1870.0%</td>
+        <td>747</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Falchion%20Case" target="_blank">Falchion Case</a></td>
+        <td>T2</td>
+        <td>19</td>
+        <td>A$3.53</td>
+        <td>A$9.50</td>
+        <td class="positive">A$67.07</td>
+        <td class="positive">+606.0%</td>
+        <td>4123</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Shadow%20Case" target="_blank">Shadow Case</a></td>
+        <td>T2</td>
+        <td>19</td>
+        <td>A$3.45</td>
+        <td>A$5.70</td>
+        <td class="positive">A$65.55</td>
+        <td class="positive">+1050.0%</td>
+        <td>2407</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Gamma%20Case" target="_blank">Gamma Case</a></td>
+        <td>T3</td>
+        <td>19</td>
+        <td>A$7.27</td>
+        <td>A$5.70</td>
+        <td class="positive">A$138.13</td>
+        <td class="positive">+2323.3%</td>
+        <td>2317</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Glove%20Case" target="_blank">Glove Case</a></td>
+        <td>T3</td>
+        <td>19</td>
+        <td>A$29.95</td>
+        <td>A$4.75</td>
+        <td class="positive">A$569.05</td>
+        <td class="positive">+11880.0%</td>
+        <td>2122</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Horizon%20Case" target="_blank">Horizon Case</a></td>
+        <td>T3</td>
+        <td>19</td>
+        <td>A$3.23</td>
+        <td>A$3.80</td>
+        <td class="positive">A$61.37</td>
+        <td class="positive">+1515.0%</td>
+        <td>6716</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Prisma%20Case" target="_blank">Prisma Case</a></td>
+        <td>T4</td>
+        <td>19</td>
+        <td>A$2.73</td>
+        <td>A$3.80</td>
+        <td class="positive">A$51.87</td>
+        <td class="positive">+1265.0%</td>
+        <td>7853</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Shattered%20Web%20Case" target="_blank">Shattered Web Case</a></td>
+        <td>T4</td>
+        <td>19</td>
+        <td>A$12.28</td>
+        <td>A$2.85</td>
+        <td class="positive">A$233.32</td>
+        <td class="positive">+8086.7%</td>
+        <td>686</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Broken%20Fang%20Case" target="_blank">Broken Fang Case</a></td>
+        <td>T4</td>
+        <td>19</td>
+        <td>A$0.12</td>
+        <td>A$2.28</td>
+        <td class="positive">A$2.28</td>
+        <td class="positive">+0.0%</td>
+        <td>0</td>
+        <td>0</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Dreams%20%26%20Nightmares%20Case" target="_blank">Dreams & Nightmares Case</a></td>
+        <td>T5</td>
+        <td>19</td>
+        <td>A$2.64</td>
+        <td>A$1.52</td>
+        <td class="positive">A$50.16</td>
+        <td class="positive">+3200.0%</td>
+        <td>197751</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Fracture%20Case" target="_blank">Fracture Case</a></td>
+        <td>T5</td>
+        <td>19</td>
+        <td>A$1.10</td>
+        <td>A$1.52</td>
+        <td class="positive">A$20.90</td>
+        <td class="positive">+1275.0%</td>
+        <td>79411</td>
+        <td>35833</td>
+      </tr><tr>
+        <td><a href="https://steamcommunity.com/market/listings/730/Ancient%20Case" target="_blank">Ancient Case</a></td>
+        <td>T5</td>
+        <td>19</td>
+        <td>A$0.08</td>
+        <td>A$1.52</td>
+        <td class="positive">A$1.52</td>
+        <td class="positive">+0.0%</td>
+        <td>0</td>
+        <td>0</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Investment Thesis</h2>
+  <div style="background: rgba(0,0,0,0.2); border-left: 3px solid #66c0f4; padding: 16px; margin-bottom: 24px; border-radius: 0 4px 4px 0;">
+    <p style="margin-bottom: 12px;"><strong>Tier 1 (Vintage):</strong> 2013-2014 cases with 12+ year track record. Lowest supply, highest collector premium. Expected 10-25% annual appreciation.</p>
+    <p style="margin-bottom: 12px;"><strong>Tier 2 (Old):</strong> 2015-2016 cases showing strong growth phase. Still building value. Expected 15-30% annual appreciation.</p>
+    <p style="margin-bottom: 12px;"><strong>Tier 3 (Mid-Era):</strong> 2016-2018 cases in acceleration phase. Lower entry cost. Expected 20-50% annual appreciation.</p>
+    <p style="margin-bottom: 12px;"><strong>Tier 4 (Major):</strong> 2019-2021 cases with slower growth. Patient hold needed. Expected 10-20% annual appreciation.</p>
+    <p><strong>Tier 5 (CS2):</strong> 2023+ current cases. Newest releases showing decline then stabilization. Expected long-term appreciation 15-50% annually once stabilized.</p>
+  </div>
+
+  <div class="footer">
+    <p>CS2 Cases Portfolio Tracker | Last updated 2026-03-13 12:59 UTC</p>
+    <p><a href="https://oldm8clint.github.io/budapest2025/">← Back to Main Dashboard</a></p>
+  </div>
+</div>
+
+<script>
+  setTimeout(() => location.reload(), 30 * 60 * 1000);
+</script>
+</body>
+</html>
