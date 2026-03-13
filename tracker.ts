@@ -1216,6 +1216,34 @@ async function main() {
     }
   }
 
+  // Build actual portfolio trajectory for prediction chart overlay
+  // Each snapshot becomes a data point at its real month offset from Budapest release
+  const actualTrajectory: { months: number; value: number }[] = [];
+  for (const entry of history.entries) {
+    const entryDate = new Date(entry.date);
+    const monthsFromRelease = (entryDate.getTime() - BUDAPEST_EVENT.getTime()) / (30.44 * 86400000);
+    if (monthsFromRelease >= 0) {
+      actualTrajectory.push({ months: +monthsFromRelease.toFixed(1), value: entry.totalValue });
+    }
+  }
+  // Also add "Now" as the latest point
+  const nowMonthsFromRelease = (refDate.getTime() - BUDAPEST_EVENT.getTime()) / (30.44 * 86400000);
+  if (actualTrajectory.length === 0 || actualTrajectory[actualTrajectory.length - 1].months !== +nowMonthsFromRelease.toFixed(1)) {
+    actualTrajectory.push({ months: +nowMonthsFromRelease.toFixed(1), value: grandValue });
+  }
+
+  // For the chart: map actual values onto the same x-axis labels as predictions
+  // The x-axis labels are: "Now", "6 months", "1.0 years", ...
+  // We need to place actual values at the closest label or use null for labels without data
+  const actualDataForChart: (number | null)[] = [grandValue]; // "Now" always has actual
+  for (const tp of timeProjections) {
+    if (tp.actualValue !== undefined) {
+      actualDataForChart.push(tp.actualValue);
+    } else {
+      actualDataForChart.push(null);
+    }
+  }
+
   // Find estimated break-even month
   let breakEvenMonths = 0;
   for (let m = 1; m <= 120; m++) {
@@ -2548,6 +2576,20 @@ new Chart(pCtx, {
         pointBorderWidth: 1,
       },
       {
+        label: 'Actual Portfolio Value',
+        data: ${JSON.stringify(actualDataForChart)},
+        borderColor: '#60a5fa',
+        backgroundColor: 'rgba(96,165,250,0.08)',
+        fill: true,
+        tension: 0.3,
+        borderWidth: 2.5,
+        pointRadius: ${JSON.stringify(actualDataForChart.map(v => v !== null ? 6 : 0))},
+        pointBackgroundColor: '#60a5fa',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        spanGaps: false,
+      },
+      {
         label: 'Break-Even ($${grandCost.toFixed(0)})',
         data: Array(${timeProjections.length + 1}).fill(${grandCost.toFixed(2)}),
         borderColor: '#ef4444',
@@ -2574,7 +2616,7 @@ new Chart(pCtx, {
     responsive: true,
     plugins: {
       legend: { labels: { color: '#888', font: { family: 'Inter' } } },
-      tooltip: { callbacks: { label: (c) => c.dataset.label + ': $' + c.parsed.y.toFixed(2) } },
+      tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y !== null ? '$' + c.parsed.y.toFixed(2) : 'No data') } },
     },
     scales: {
       x: { ticks: { color: '#666', font: { family: 'Inter' } }, grid: { color: '#111' } },

@@ -272,7 +272,7 @@
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
   <div>
     <h1>Budapest 2025 Major Sticker Investments</h1>
-<div class="subtitle">Last updated <span>2026-03-13 11:13 UTC</span> &middot; All prices AUD &middot; Buy price $0.35/ea &middot; <span>1 snapshot</span></div>
+<div class="subtitle">Last updated <span>2026-03-13 11:27 UTC</span> &middot; All prices AUD &middot; Buy price $0.35/ea &middot; <span>1 snapshot</span></div>
   </div>
   <button class="btn-download" onclick="downloadCSV()">Download CSV</button>
 </div>
@@ -13235,6 +13235,20 @@ new Chart(pCtx, {
         pointBorderWidth: 1,
       },
       {
+        label: 'Actual Portfolio Value',
+        data: [277.4800000000004,null,null,null,null,null,null,null,null,null,null,null],
+        borderColor: '#60a5fa',
+        backgroundColor: 'rgba(96,165,250,0.08)',
+        fill: true,
+        tension: 0.3,
+        borderWidth: 2.5,
+        pointRadius: [6,0,0,0,0,0,0,0,0,0,0,0],
+        pointBackgroundColor: '#60a5fa',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        spanGaps: false,
+      },
+      {
         label: 'Break-Even ($393)',
         data: Array(12).fill(392.70),
         borderColor: '#ef4444',
@@ -13258,7 +13272,7 @@ new Chart(pCtx, {
     responsive: true,
     plugins: {
       legend: { labels: { color: '#888', font: { family: 'Inter' } } },
-      tooltip: { callbacks: { label: (c) => c.dataset.label + ': $' + c.parsed.y.toFixed(2) } },
+      tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y !== null ? '$' + c.parsed.y.toFixed(2) : 'No data') } },
     },
     scales: {
       x: { ticks: { color: '#666', font: { family: 'Inter' } }, grid: { color: '#111' } },
