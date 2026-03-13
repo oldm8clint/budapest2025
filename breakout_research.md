@@ -13,11 +13,12 @@
 - Similar appreciation pattern to Katowice 2014 stickers
 
 ## Current Market Data (March 2026)
-- **Approximate Price Range (USD):** $12-$25 per case (varies by market/region)
-- **AUD Conversion (~1.55x):** $18.60-$38.75 AUD
-- **Average Market Price (AUD estimate):** ~$25-30 AUD per case
+- **Current Price (Steam Market):** A$17.40 per case
 - **Your Inventory:** 19 cases
-- **Estimated Portfolio Value:** $475-570 AUD
+- **Cost Basis:** A$13.35 per case (A$253.65 total)
+- **Current Portfolio Value:** A$330.60
+- **Current Profit/Loss:** +A$76.95
+- **Current ROI:** +30.3%
 
 ## Investment Thesis
 1. **Scarcity:** Limited supply - cases dropped until 2018, no longer available

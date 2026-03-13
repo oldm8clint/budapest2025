@@ -5,10 +5,10 @@
       "price": 17.4,
       "volume": 3209,
       "listings": 115,
-      "totalValue": 330.59999999999997,
-      "totalCost": 57,
-      "roi": "480.0",
-      "profitLoss": 273.59999999999997
+      "totalValue": 330.60,
+      "totalCost": 253.65,
+      "roi": "30.3",
+      "profitLoss": 76.95
     }
   ]
 }

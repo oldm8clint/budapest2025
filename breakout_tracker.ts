@@ -14,8 +14,8 @@ const inventory = {
   name: "Operation Breakout Weapon Case",
   hashName: "Operation Breakout Weapon Case",
   qty: 19,
-  costPerUnit: 3.00, // AUD (historical cost basis, ~$1.95 USD in 2018)
-  totalCost: 57.00,
+  costPerUnit: 13.35, // AUD
+  totalCost: 253.65, // 19 × 13.35
 };
 
 interface HistoryEntry {
