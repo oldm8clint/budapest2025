@@ -506,6 +506,7 @@ interface HistoryEntry {
   milestones?: string[];
   lastInvestmentScore?: number;
   lastInvestmentSignal?: string;
+  deepFetch?: boolean;
 }
 
 interface HistoryData {
@@ -772,31 +773,83 @@ async function fetchPrice(hashName: string, retries = 2): Promise<PriceResult> {
   return { price: 0, volume: 0 };
 }
 
-// Fetch sell_listings count from Steam search/render API
-// Fetch sell_listings count from Steam search/render API
-async function fetchListings(hashNames: string[]): Promise<Record<string, number>> {
+// Batch-fetch ALL prices + listings from Steam search/render API
+// Paginates through all event items (~154 pages of 100), extracting sell_price and sell_listings
+async function fetchAllPricesBatch(): Promise<{ prices: Record<string, number>; listings: Record<string, number> }> {
+  const prices: Record<string, number> = {};
   const listings: Record<string, number> = {};
-  const batchSize = 100;
-  for (let i = 0; i < hashNames.length; i += batchSize) {
-    try {
-      const searchUrl = `https://steamcommunity.com/market/search/render/?appid=730&norender=1&count=${batchSize}&start=0&search_descriptions=0&sort_column=name&sort_dir=asc&category_730_Type%5B%5D=tag_CSGO_Tool_Sticker&q=${encodeURIComponent(config.event)}`;
-      const res = await fetch(searchUrl);
-      if (res.ok) {
+  let start = 0;
+  let totalCount = Infinity;
+  let actualPageSize = 10; // Steam typically returns 10 per page regardless of count param
+  let page = 0;
+  let consecutiveRateLimits = 0;
+
+  const searchQuery = encodeURIComponent(config.event);
+
+  while (start < totalCount) {
+    page++;
+    const url = `https://steamcommunity.com/market/search/render/?query=${searchQuery}&appid=730&start=${start}&count=100&norender=1&currency=${config.currencyCode}`;
+    let success = false;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const res = await fetch(url);
+        if (res.status === 429) {
+          const backoff = Math.min(15000 * Math.pow(2, attempt), 120000); // 15s, 30s, 60s, 120s, 120s
+          console.log(`  [BATCH] Rate limited on page ${page} (attempt ${attempt + 1}/5), waiting ${backoff / 1000}s...`);
+          await new Promise(r => setTimeout(r, backoff));
+          consecutiveRateLimits++;
+          continue;
+        }
+        if (!res.ok) {
+          console.log(`  [BATCH] HTTP ${res.status} on page ${page}, retrying in 5s...`);
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
         const data = await res.json() as any;
-        if (data.results) {
-          for (const item of data.results) {
-            if (item.hash_name && item.sell_listings !== undefined) {
-              listings[item.hash_name] = item.sell_listings;
-            }
+        if (data.total_count !== undefined) {
+          totalCount = data.total_count;
+        }
+        const results = data.results || [];
+        if (results.length > 0) {
+          actualPageSize = results.length;
+        }
+        for (const item of results) {
+          if (!item.hash_name) continue;
+          if (item.sell_price !== undefined) {
+            prices[item.hash_name] = item.sell_price / 100; // cents → dollars
+          }
+          if (item.sell_listings !== undefined) {
+            listings[item.hash_name] = item.sell_listings;
           }
         }
+        success = true;
+        consecutiveRateLimits = 0;
+        break;
+      } catch (e) {
+        console.log(`  [BATCH] Error on page ${page}: ${e}`);
+        await new Promise(r => setTimeout(r, 5000));
       }
-    } catch {}
-    if (i + batchSize < hashNames.length) {
-      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    if (!success) {
+      console.log(`  [BATCH] Failed page ${page} after 5 attempts, continuing...`);
+    }
+
+    if (page % 20 === 0 || start + actualPageSize >= totalCount) {
+      console.log(`  [BATCH] Page ${page}: ${Object.keys(prices).length} items (${Math.min(start + actualPageSize, totalCount)}/${totalCount})`);
+    }
+
+    start += actualPageSize;
+    if (start < totalCount) {
+      // Adaptive delay: slow down when hitting rate limits
+      const delay = consecutiveRateLimits > 2 ? 5000 : 3000;
+      await new Promise(r => setTimeout(r, delay));
     }
   }
-  return listings;
+
+  console.log(`  [BATCH] Complete: ${Object.keys(prices).length} prices, ${Object.keys(listings).length} listings`);
+  return { prices, listings };
 }
 
 // ── Skinport API — third-party sales data (no auth needed) ──
@@ -854,6 +907,86 @@ async function fetchSkinportSales(): Promise<Record<string, { vol24h: number; vo
     }
     console.log(`  Skinport: ${Object.keys(result).length} ${config.event} items with sales history`);
   } catch (e) { console.log(`  Skinport sales fetch failed: ${e}`); }
+  return result;
+}
+
+// ── SteamAnalyst API — pricing + volume + manipulation detection ──
+// One API call returns ALL CS2 items. Free tier: 100 req/day (we use 1 per run)
+// Prices are USD. We convert to AUD for display.
+interface SteamAnalystItem {
+  market_name: string;
+  avg_price_7_days?: string;
+  avg_price_7_days_raw?: number;
+  avg_price_30_days?: string;
+  avg_price_30_days_raw?: number;
+  current_price?: string;
+  current_price_last_checked?: string;
+  sold_last_24h?: number;
+  sold_last_7d?: number;
+  avg_daily_volume?: number;
+  ongoing_price_manipulation?: boolean;
+  suspicious?: boolean;
+  img?: string;
+  rarity?: string;
+  link?: string;
+  // Rare items (>$400)
+  suggested_amount_avg_raw?: number;
+  suggested_amount_min_raw?: number;
+  suggested_amount_max_raw?: number;
+  // Historical comparison
+  avg7_1yr?: number;
+  avg30_1yr?: number;
+  avg60_1yr?: number;
+  // Price manipulation
+  safe_price_raw?: number;
+}
+
+interface SteamAnalystData {
+  avg7d: number;       // USD
+  avg30d: number;      // USD
+  currentPrice: number; // USD
+  vol24h: number;
+  vol7d: number;
+  avgDailyVol: number;
+  manipulation: boolean;
+  suspicious: boolean;
+  safePrice: number;   // USD — manipulation-adjusted price
+  avg7d1yr: number;    // USD — 7d avg from 1 year ago
+  avg30d1yr: number;   // USD — 30d avg from 1 year ago
+}
+
+async function fetchSteamAnalyst(): Promise<Record<string, SteamAnalystData>> {
+  const result: Record<string, SteamAnalystData> = {};
+  const apiKey = process.env.STEAMANALYST_API_KEY || '';
+  if (!apiKey) {
+    console.log('  SteamAnalyst: No API key set (set STEAMANALYST_API_KEY env var). Skipping.');
+    return result;
+  }
+  try {
+    const res = await fetch(`https://api.steamanalyst.com/v2/${apiKey}`, {
+      headers: { 'Accept-Encoding': 'br, gzip, deflate' },
+    });
+    if (!res.ok) { console.log(`  SteamAnalyst API returned ${res.status}`); return result; }
+    const data = await res.json() as Record<string, SteamAnalystItem>;
+    for (const [key, item] of Object.entries(data)) {
+      const name = item.market_name || key;
+      if (!name.includes(config.event)) continue;
+      result[name] = {
+        avg7d: item.avg_price_7_days_raw || item.suggested_amount_avg_raw || 0,
+        avg30d: item.avg_price_30_days_raw || item.suggested_amount_avg_raw || 0,
+        currentPrice: parseFloat((item.current_price || '0').replace(/[^0-9.]/g, '')) || 0,
+        vol24h: item.sold_last_24h || 0,
+        vol7d: item.sold_last_7d || 0,
+        avgDailyVol: item.avg_daily_volume || 0,
+        manipulation: item.ongoing_price_manipulation || false,
+        suspicious: item.suspicious || false,
+        safePrice: item.safe_price_raw || 0,
+        avg7d1yr: item.avg7_1yr || 0,
+        avg30d1yr: item.avg30_1yr || 0,
+      };
+    }
+    console.log(`  SteamAnalyst: ${Object.keys(result).length} ${config.event} items (${Object.values(result).filter(v => v.manipulation).length} flagged for manipulation)`);
+  } catch (e) { console.log(`  SteamAnalyst fetch failed: ${e}`); }
   return result;
 }
 
@@ -1026,78 +1159,141 @@ async function main() {
   const volumes: Record<string, number> = {};
 
   if (!existingToday) {
-    console.log(`Fetching prices for ${stickers.length} stickers...`);
-    console.log(`Estimated time: ~${Math.ceil(stickers.length * DELAY_MS / 60000)} minutes\n`);
+    // Determine fetch mode: deep (individual, gets volume) vs fast (batch, ~5min)
+    const todayDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    const hasDeepFetchToday = history.entries.some(e =>
+      e.date.startsWith(todayDate) && e.deepFetch === true
+    );
+    const isDeepFetchHour = now.getUTCHours() === 0; // midnight UTC
+    const useDeepFetch = !hasDeepFetchToday && isDeepFetchHour;
 
-    for (let i = 0; i < stickers.length; i++) {
-      const s = stickers[i];
-      const hashName = getMarketHashName(s.name, s.quality);
-      const key = stickerKey(s.name, s.quality);
+    if (useDeepFetch) {
+      // ── DEEP MODE: individual fetchPrice() for all stickers (gets volume) ──
+      console.log(`[DEEP MODE] Fetching prices + volume for ${stickers.length} stickers...`);
+      console.log(`Estimated time: ~${Math.ceil(stickers.length * 2 * DELAY_MS / 60000)} minutes\n`);
 
-      process.stdout.write(`[${i + 1}/${stickers.length}] ${hashName}...`);
-      const result = await fetchPrice(hashName);
-      prices[key] = result.price;
-      volumes[key] = result.volume;
+      for (let i = 0; i < stickers.length; i++) {
+        const s = stickers[i];
+        const hashName = getMarketHashName(s.name, s.quality);
+        const key = stickerKey(s.name, s.quality);
 
-      if (result.price === 0) {
-        console.log(` FAILED`);
+        process.stdout.write(`[${i + 1}/${stickers.length}] ${hashName}...`);
+        const result = await fetchPrice(hashName);
+        prices[key] = result.price;
+        volumes[key] = result.volume;
+
+        if (result.price === 0) {
+          console.log(` FAILED`);
+        } else {
+          console.log(` ${config.currencySymbol}${result.price.toFixed(2)} (vol: ${result.volume})`);
+        }
+
+        if (i < stickers.length - 1) {
+          await new Promise(r => setTimeout(r, DELAY_MS));
+        }
+      }
+
+      // For any failures, try to use last known price
+      const lastEntry = history.entries[history.entries.length - 1];
+      for (const s of stickers) {
+        const key = stickerKey(s.name, s.quality);
+        if (prices[key] === 0 && lastEntry?.prices[key]) {
+          prices[key] = lastEntry.prices[key];
+          console.log(`Using last known price for ${s.name} ${s.quality}: ${config.currencySymbol}${prices[key].toFixed(2)}`);
+        }
+      }
+
+      // Fetch slab prices individually (deep mode only gets volume from individual API)
+      const slabPrices: Record<string, number> = {};
+      console.log(`\nFetching slab prices for ${stickers.length} variants...`);
+      for (let i = 0; i < stickers.length; i++) {
+        const s = stickers[i];
+        const slabHash = getSlabMarketHashName(s.name, s.quality);
+        const key = stickerKey(s.name, s.quality);
+        if (!slabHash) { slabPrices[key] = 0; continue; }
+        process.stdout.write(`[SLAB ${i + 1}/${stickers.length}] ${slabHash}...`);
+        const slabResult = await fetchPrice(slabHash, 1);
+        slabPrices[key] = slabResult.price;
+        console.log(slabResult.price === 0 ? ` NO LISTING` : ` ${config.currencySymbol}${slabResult.price.toFixed(2)}`);
+        if (i < stickers.length - 1) await new Promise(r => setTimeout(r, DELAY_MS));
+      }
+
+      // Fetch listings from batch API (fast, single pass)
+      console.log(`\nFetching sell listings via batch...`);
+      const batchResult = await fetchAllPricesBatch();
+      const listings: Record<string, number> = {};
+      for (const s of stickers) {
+        const key = stickerKey(s.name, s.quality);
+        const hashName = getMarketHashName(s.name, s.quality);
+        listings[key] = batchResult.listings[hashName] || 0;
+      }
+
+      // Calculate totals
+      let totalValue = 0;
+      const totalCost = stickers.reduce((a, s) => a + s.qty * config.costPerUnit, 0);
+      for (const s of stickers) {
+        totalValue += s.qty * (prices[stickerKey(s.name, s.quality)] || 0);
+      }
+
+      // Save to history
+      const { top, bottom } = computePerformers(prices);
+      history.entries.push({ date: today, prices, totalValue, totalCost, topPerformers: top, bottomPerformers: bottom, slabPrices, volumes, listings, deepFetch: true });
+      await Bun.write(HISTORY_FILE, JSON.stringify(history, null, 2));
+      console.log(`\nSaved DEEP price snapshot for ${today}`);
+
+    } else {
+      // ── FAST MODE: batch fetch via search API (~5 min) ──
+      console.log(`[FAST MODE] Batch-fetching prices for all event items...`);
+      const batchResult = await fetchAllPricesBatch();
+
+      // Map batch results to sticker keys
+      const slabPrices: Record<string, number> = {};
+      const listings: Record<string, number> = {};
+
+      for (const s of stickers) {
+        const key = stickerKey(s.name, s.quality);
+        const hashName = getMarketHashName(s.name, s.quality);
+        const slabHash = getSlabMarketHashName(s.name, s.quality);
+
+        prices[key] = batchResult.prices[hashName] || 0;
+        listings[key] = batchResult.listings[hashName] || 0;
+        slabPrices[key] = slabHash ? (batchResult.prices[slabHash] || 0) : 0;
+      }
+
+      // For any failures, try to use last known price
+      const lastEntry = history.entries[history.entries.length - 1];
+      for (const s of stickers) {
+        const key = stickerKey(s.name, s.quality);
+        if (prices[key] === 0 && lastEntry?.prices[key]) {
+          prices[key] = lastEntry.prices[key];
+          console.log(`Using last known price for ${s.name} ${s.quality}: ${config.currencySymbol}${prices[key].toFixed(2)}`);
+        }
+      }
+
+      // Carry forward volumes from most recent deep fetch
+      const lastDeepEntry = [...history.entries].reverse().find(e => e.deepFetch === true);
+      if (lastDeepEntry?.volumes) {
+        console.log(`Carrying forward volume data from deep fetch on ${lastDeepEntry.date}`);
+        for (const key of Object.keys(lastDeepEntry.volumes)) {
+          volumes[key] = lastDeepEntry.volumes[key];
+        }
       } else {
-        console.log(` A$${result.price.toFixed(2)} (vol: ${result.volume})`);
+        console.log(`No previous deep fetch found — volume data will be empty`);
       }
 
-      if (i < stickers.length - 1) {
-        await new Promise(r => setTimeout(r, DELAY_MS));
+      // Calculate totals
+      let totalValue = 0;
+      const totalCost = stickers.reduce((a, s) => a + s.qty * config.costPerUnit, 0);
+      for (const s of stickers) {
+        totalValue += s.qty * (prices[stickerKey(s.name, s.quality)] || 0);
       }
-    }
 
-    // For any failures, try to use last known price
-    const lastEntry = history.entries[history.entries.length - 1];
-    for (const s of stickers) {
-      const key = stickerKey(s.name, s.quality);
-      if (prices[key] === 0 && lastEntry?.prices[key]) {
-        prices[key] = lastEntry.prices[key];
-        console.log(`Using last known price for ${s.name} ${s.quality}: A$${prices[key].toFixed(2)}`);
-      }
+      // Save to history
+      const { top, bottom } = computePerformers(prices);
+      history.entries.push({ date: today, prices, totalValue, totalCost, topPerformers: top, bottomPerformers: bottom, slabPrices, volumes, listings });
+      await Bun.write(HISTORY_FILE, JSON.stringify(history, null, 2));
+      console.log(`\nSaved FAST price snapshot for ${today}`);
     }
-
-    // ── Fetch slab prices ──────────────────────────────────────────
-    const slabPrices: Record<string, number> = {};
-    console.log(`\nFetching slab prices for ${stickers.length} variants...`);
-    for (let i = 0; i < stickers.length; i++) {
-      const s = stickers[i];
-      const slabHash = getSlabMarketHashName(s.name, s.quality);
-      const key = stickerKey(s.name, s.quality);
-      if (!slabHash) { slabPrices[key] = 0; continue; } // skip capsules
-      process.stdout.write(`[SLAB ${i + 1}/${stickers.length}] ${slabHash}...`);
-      const slabResult = await fetchPrice(slabHash, 1);
-      slabPrices[key] = slabResult.price;
-      console.log(slabResult.price === 0 ? ` NO LISTING` : ` A$${slabResult.price.toFixed(2)}`);
-      if (i < stickers.length - 1) await new Promise(r => setTimeout(r, DELAY_MS));
-    }
-
-    // Calculate totals
-    let totalValue = 0;
-    const totalCost = stickers.reduce((a, s) => a + s.qty * config.costPerUnit, 0);
-    for (const s of stickers) {
-      totalValue += s.qty * (prices[stickerKey(s.name, s.quality)] || 0);
-    }
-
-    // Fetch sell listings from search API
-    console.log(`\nFetching sell listings...`);
-    const allHashNames = stickers.map(s => getMarketHashName(s.name, s.quality));
-    const listingsData = await fetchListings(allHashNames);
-    const listings: Record<string, number> = {};
-    for (const s of stickers) {
-      const key = stickerKey(s.name, s.quality);
-      const hashName = getMarketHashName(s.name, s.quality);
-      listings[key] = listingsData[hashName] || 0;
-    }
-
-    // Save to history
-    const { top, bottom } = computePerformers(prices);
-    history.entries.push({ date: today, prices, totalValue, totalCost, topPerformers: top, bottomPerformers: bottom, slabPrices, volumes, listings });
-    await Bun.write(HISTORY_FILE, JSON.stringify(history, null, 2));
-    console.log(`\nSaved price snapshot for ${today}`);
   }
 
   // Backfill existing entries that lack performer/slab data
@@ -1121,6 +1317,8 @@ async function main() {
   console.log('Fetching Skinport third-party sales data...');
   const skinportListings = await fetchSkinportListings();
   const skinportSales = await fetchSkinportSales();
+  console.log('Fetching SteamAnalyst pricing data...');
+  const steamAnalystData = await fetchSteamAnalyst();
 
   // ── Build data rows ───────────────────────────────────────────────
   interface Row {
@@ -1139,6 +1337,18 @@ async function main() {
     skinportPriceAdj: number; // USD, with 15% markup for Steam parity
     skinportVol7d: number;
     skinportVol30d: number;
+    // Third-party data (SteamAnalyst) — pricing, volume, manipulation detection
+    saAvg7d: number;        // AUD (converted from USD)
+    saAvg30d: number;       // AUD
+    saCurrentPrice: number; // AUD
+    saVol24h: number;
+    saVol7d: number;
+    saAvgDailyVol: number;
+    saManipulation: boolean;
+    saSuspicious: boolean;
+    saSafePrice: number;    // AUD — manipulation-adjusted
+    saAvg7d1yr: number;     // AUD — 7d avg from 1 year ago
+    saYoYChange: number;    // % change year-over-year
   }
 
   const data: Row[] = [];
@@ -1183,6 +1393,15 @@ async function main() {
     // Convert USD→AUD, then apply 15% markup for Steam seller fee parity
     const spPriceAdj = spMinPrice > 0 ? spMinPrice * USD_TO_AUD * 1.15 : 0;
 
+    // Third-party data (SteamAnalyst) — USD prices converted to AUD
+    const saItem = steamAnalystData[hashName] || { avg7d: 0, avg30d: 0, currentPrice: 0, vol24h: 0, vol7d: 0, avgDailyVol: 0, manipulation: false, suspicious: false, safePrice: 0, avg7d1yr: 0, avg30d1yr: 0 };
+    const saAvg7d = saItem.avg7d * USD_TO_AUD;
+    const saAvg30d = saItem.avg30d * USD_TO_AUD;
+    const saCurrentPrice = saItem.currentPrice * USD_TO_AUD;
+    const saSafePrice = saItem.safePrice > 0 ? saItem.safePrice * USD_TO_AUD : 0;
+    const saAvg7d1yr = saItem.avg7d1yr * USD_TO_AUD;
+    const saYoYChange = saAvg7d1yr > 0 && saAvg7d > 0 ? ((saAvg7d - saAvg7d1yr) / saAvg7d1yr * 100) : 0;
+
     data.push({
       name: s.name, quality: s.quality, qty: s.qty, costPerUnit: config.costPerUnit,
       totalCost, currentPrice: price, totalValue, profitLoss: pl,
@@ -1198,6 +1417,10 @@ async function main() {
       skinportPriceAdj: spPriceAdj,
       skinportVol7d: spData.vol7d,
       skinportVol30d: spData.vol30d,
+      saAvg7d, saAvg30d, saCurrentPrice,
+      saVol24h: saItem.vol24h, saVol7d: saItem.vol7d, saAvgDailyVol: saItem.avgDailyVol,
+      saManipulation: saItem.manipulation, saSuspicious: saItem.suspicious,
+      saSafePrice, saAvg7d1yr, saYoYChange,
     });
 
     grandQty += s.qty;
@@ -1555,30 +1778,30 @@ async function main() {
   const historicalMajors: HistoricalMajor[] = [
     // Pre-2019 majors — weighted MUCH lower (1-10%) due to completely different market dynamics
     // Katowice 2014: Only ~350 sticker capsules existed. Paper avg $1,443 USD, Holo avg $22,031 USD. Extreme outlier.
-    { name: "Katowice 2014", date: "2014-03-16", monthsOld: monthsSince("2014-03-16"), avgPaper: 2236, avgMidTier: 2236, avgHolo: 34148, avgGold: 0, saleDays: 30, capsulePrice: 0, weight: 0.003, notes: "Extreme outlier. Only ~350 capsules existed. Not comparable to modern market." },
-    { name: "Cologne 2014", date: "2014-08-17", monthsOld: monthsSince("2014-08-17"), avgPaper: 17.46, avgMidTier: 17.46, avgHolo: 100.25, avgGold: 0, saleDays: 45, capsulePrice: 0, weight: 0.05, notes: "Early CS:GO era, small player base. Holo designs iconic." },
-    { name: "Katowice 2015", date: "2015-03-15", monthsOld: monthsSince("2015-03-15"), avgPaper: 50.22, avgMidTier: 223.14, avgHolo: 128.47, avgGold: 0, saleDays: 45, capsulePrice: 0, weight: 0.02, notes: "Katowice brand premium. Foil stickers introduced. Extreme ROI outlier — low supply era." },
-    { name: "Cologne 2015", date: "2015-08-23", monthsOld: monthsSince("2015-08-23"), avgPaper: 11.06, avgMidTier: 58.59, avgHolo: 58.59, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Decent designs. Growing player base." },
-    { name: "Cluj-Napoca 2015", date: "2015-11-01", monthsOld: monthsSince("2015-11-01"), avgPaper: 10.95, avgMidTier: 81.07, avgHolo: 81.07, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Less popular location. Moderate returns." },
-    { name: "Columbus 2016", date: "2016-04-03", monthsOld: monthsSince("2016-04-03"), avgPaper: 14.60, avgMidTier: 153.98, avgHolo: 68.70, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "MLG Columbus. NA major. Good team variety." },
-    { name: "Cologne 2016", date: "2016-07-10", monthsOld: monthsSince("2016-07-10"), avgPaper: 14.94, avgMidTier: 159.91, avgHolo: 39.08, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Peak CS:GO viewership era." },
+    { name: "Katowice 2014", date: "2014-03-16", monthsOld: monthsSince("2014-03-16"), avgPaper: 2236, avgMidTier: 2236, avgHolo: 34148, avgGold: 0, saleDays: 30, capsulePrice: 0, weight: 0.003, notes: "Only ~350 capsules existed — extreme scarcity. iBUYPOWER Holo reached $75K. Titan Holo $55-85K. Not comparable to modern supply levels." },
+    { name: "Cologne 2014", date: "2014-08-17", monthsOld: monthsSince("2014-08-17"), avgPaper: 17.46, avgMidTier: 17.46, avgHolo: 100.25, avgGold: 0, saleDays: 45, capsulePrice: 0, weight: 0.05, notes: "Tiny player base (~200K concurrent). Iconic Holo designs. Dignitas Holo reached $820. Capsules now $3 from $0.25 (1,100%)." },
+    { name: "Katowice 2015", date: "2015-03-15", monthsOld: monthsSince("2015-03-15"), avgPaper: 50.22, avgMidTier: 223.14, avgHolo: 128.47, avgGold: 0, saleDays: 45, capsulePrice: 0, weight: 0.02, notes: "Katowice brand carries collector premium. Foil stickers introduced. Short 45-day sale kept supply low. Capsules now ~$450." },
+    { name: "Cologne 2015", date: "2015-08-23", monthsOld: monthsSince("2015-08-23"), avgPaper: 11.06, avgMidTier: 58.59, avgHolo: 58.59, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Growing player base drove demand. 60-day sale was standard. Solid designs appreciated steadily over 5+ years." },
+    { name: "Cluj-Napoca 2015", date: "2015-11-01", monthsOld: monthsSince("2015-11-01"), avgPaper: 10.95, avgMidTier: 81.07, avgHolo: 81.07, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Less popular location hurt brand appeal. 2nd major of year diluted demand slightly. Still 800%+ capsule ROI from low supply era." },
+    { name: "Columbus 2016", date: "2016-04-03", monthsOld: monthsSince("2016-04-03"), avgPaper: 14.60, avgMidTier: 153.98, avgHolo: 68.70, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "MLG production. NA major drove NA buyer interest. Holo/Foil capsules now $41 (2,353% from $1.25). Good team variety." },
+    { name: "Cologne 2016", date: "2016-07-10", monthsOld: monthsSince("2016-07-10"), avgPaper: 14.94, avgMidTier: 159.91, avgHolo: 39.08, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.08, notes: "Peak CS:GO viewership era (~1M concurrent). 2nd major of year but strong demand. Capsule ROI ~84%. Holo/Foil challengers now $32." },
     // Atlanta 2017: Massive price increase due to unique designs, growing investor interest, and limited supply
-    { name: "Atlanta 2017", date: "2017-01-29", monthsOld: monthsSince("2017-01-29"), avgPaper: 38.12, avgMidTier: 409.85, avgHolo: 137.31, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.04, notes: "Best pre-2019 investment. ELEAGUE production quality drove collector interest. VP/Astralis iconic stickers. Extreme ROI outlier — not representative of modern market." },
-    { name: "Krakow 2017", date: "2017-07-23", monthsOld: monthsSince("2017-07-23"), avgPaper: 16.86, avgMidTier: 103.13, avgHolo: 46.62, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.10, notes: "PGL production. Decent returns but less than Atlanta." },
+    { name: "Atlanta 2017", date: "2017-01-29", monthsOld: monthsSince("2017-01-29"), avgPaper: 38.12, avgMidTier: 409.85, avgHolo: 137.31, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.04, notes: "Best pre-2019 major. ELEAGUE production quality. VP/Astralis iconic designs. Holo capsules now $75 (+4,917%). Weighted low because pre-modern market dynamics." },
+    { name: "Krakow 2017", date: "2017-07-23", monthsOld: monthsSince("2017-07-23"), avgPaper: 16.86, avgMidTier: 103.13, avgHolo: 46.62, avgGold: 0, saleDays: 60, capsulePrice: 0, weight: 0.10, notes: "PGL production. Autograph capsules now $23. Decent but not Atlanta-level — less iconic team stickers. 2nd major of year." },
     // 2018-2019 majors — more relevant, weighted higher (15-25%)
-    { name: "Boston 2018", date: "2018-01-28", monthsOld: monthsSince("2018-01-28"), avgPaper: 13.27, avgMidTier: 109.54, avgHolo: 94.90, avgGold: 0, saleDays: 60, capsulePrice: 331, weight: 0.15, notes: "Last major with separate Holo/Foil capsules at low price. 100 Thieves pulled sticker = ultra-rare. Cloud9 underdog win. Prices took off ~12-18mo, accelerated 2020-2021." },
-    { name: "London 2018", date: "2018-09-23", monthsOld: monthsSince("2018-09-23"), avgPaper: 5.84, avgMidTier: 79.90, avgHolo: 25.27, avgGold: 0, saleDays: 60, capsulePrice: 23, weight: 0.15, notes: "FACEIT major. Astralis dynasty. Steady appreciation over 18-24mo, not explosive." },
-    { name: "Katowice 2019", date: "2019-03-03", monthsOld: monthsSince("2019-03-03"), avgPaper: 5.43, avgMidTier: 35.75, avgHolo: 12.27, avgGold: 606.69, saleDays: 75, capsulePrice: 17, weight: 0.20, notes: "First Gold stickers. Katowice brand. Inflection at 12-18mo. COVID gap helped scarcity." },
-    { name: "Berlin 2019", date: "2019-09-08", monthsOld: monthsSince("2019-09-08"), avgPaper: 1.17, avgMidTier: 6.95, avgHolo: 6.95, avgGold: 95.90, saleDays: 75, capsulePrice: 2.3, weight: 0.20, notes: "WORST pre-CS2 investment. Ugly designs. Massive oversupply. $11M+ revenue. COVID stockpiling made it worse. Never took off." },
+    { name: "Boston 2018", date: "2018-01-28", monthsOld: monthsSince("2018-01-28"), avgPaper: 13.27, avgMidTier: 109.54, avgHolo: 94.90, avgGold: 0, saleDays: 60, capsulePrice: 331, weight: 0.15, notes: "Last major with separate cheap Holo/Foil capsules. 100 Thieves sticker pulled = ultra-rare. Cloud9 underdog win drove collector interest. Capsules now $331 (+15,880%). Inflection at 12-18mo, accelerated 2020-2021." },
+    { name: "London 2018", date: "2018-09-23", monthsOld: monthsSince("2018-09-23"), avgPaper: 5.84, avgMidTier: 79.90, avgHolo: 25.27, avgGold: 0, saleDays: 60, capsulePrice: 23, weight: 0.15, notes: "FACEIT major. Astralis dynasty era. s1mple Gold reached $720. Steady appreciation over 18-24mo — not explosive like Boston but reliable. 887% capsule ROI." },
+    { name: "Katowice 2019", date: "2019-03-03", monthsOld: monthsSince("2019-03-03"), avgPaper: 5.43, avgMidTier: 35.75, avgHolo: 12.27, avgGold: 606.69, saleDays: 75, capsulePrice: 17, weight: 0.20, notes: "First Gold stickers introduced. Katowice brand premium. 75-day sale (longer than 2018). COVID lockdowns created 2yr gap — scarcity boosted prices. DickStacy Gold $840. 426% capsule ROI." },
+    { name: "Berlin 2019", date: "2019-09-08", monthsOld: monthsSince("2019-09-08"), avgPaper: 1.17, avgMidTier: 6.95, avgHolo: 6.95, avgGold: 95.90, saleDays: 75, capsulePrice: 2.3, weight: 0.20, notes: "WORST pre-CS2 investment. Widely considered ugly designs. $11M+ revenue = massive oversupply. COVID stockpiling flooded the market further. Holo capsules LOST 17%. Proof that bad designs + oversupply = failure." },
     // Post-COVID / CS2 transition majors — MOST relevant, weighted highest (30-100%)
-    { name: "Stockholm 2021", date: "2021-11-07", monthsOld: monthsSince("2021-11-07"), avgPaper: 0.26, avgMidTier: 6.53, avgHolo: 11.16, avgGold: 58.56, saleDays: 80, capsulePrice: 3.8, weight: 0.60, notes: "2yr gap since Berlin. First combined capsule format. s1mple won. Prices skyrocketed 20x by 2023. Inflection at 6-9mo. CS2 announcement catalysed gains." },
-    { name: "Antwerp 2022", date: "2022-05-22", monthsOld: monthsSince("2022-05-22"), avgPaper: 0.13, avgMidTier: 0.13, avgHolo: 17.72, avgGold: 40.34, saleDays: 90, capsulePrice: 0.7, weight: 0.60, notes: "FaZe won. Only 6mo after Stockholm — diluted demand. Never achieved significant appreciation. CS2 briefly boosted prices." },
-    { name: "Rio 2022", date: "2022-11-13", monthsOld: monthsSince("2022-11-13"), avgPaper: 0.24, avgMidTier: 0.24, avgHolo: 7.62, avgGold: 41.40, saleDays: 100, capsulePrice: 0.35, weight: 0.70, notes: "Worst modern investment. Longest sale to date. 2 majors same year flooded market. Brazilian crowd drove buying but oversaturated supply." },
+    { name: "Stockholm 2021", date: "2021-11-07", monthsOld: monthsSince("2021-11-07"), avgPaper: 0.26, avgMidTier: 6.53, avgHolo: 11.16, avgGold: 58.56, saleDays: 80, capsulePrice: 3.8, weight: 0.60, notes: "2-year gap since Berlin (COVID) = massive scarcity advantage. First combined capsule format. s1mple won. Prices skyrocketed 20x by 2023. CS2 announcement catalysed additional gains. Proof that supply gaps drive ROI." },
+    { name: "Antwerp 2022", date: "2022-05-22", monthsOld: monthsSince("2022-05-22"), avgPaper: 0.13, avgMidTier: 0.13, avgHolo: 17.72, avgGold: 40.34, saleDays: 90, capsulePrice: 0.7, weight: 0.60, notes: "Only 6mo after Stockholm — too soon, market hadn't recovered. FaZe won but demand diluted. 90-day sale added supply. m0NESY Gold $100. Barely +80% after 4 years. Two-majors-per-year kills returns." },
+    { name: "Rio 2022", date: "2022-11-13", monthsOld: monthsSince("2022-11-13"), avgPaper: 0.24, avgMidTier: 0.24, avgHolo: 7.62, avgGold: 41.40, saleDays: 100, capsulePrice: 0.35, weight: 0.70, notes: "2nd major of 2022 — market flooded. 100-day sale (longest at the time). Brazilian crowd drove massive buying but oversaturated supply. Capsules LOST 4-28%. Proves: long sale + 2 majors/year = worst case." },
     // CS2-era majors — highest relevance for Budapest 2025 predictions
-    { name: "Paris 2023", date: "2023-05-21", monthsOld: monthsSince("2023-05-21"), avgPaper: 0.14, avgMidTier: 0.73, avgHolo: 11.10, avgGold: 34.81, saleDays: 146, capsulePrice: 0.14, weight: 0.80, notes: "$110M+ revenue — most bought stickers EVER. 377K listings. 5-month sale. Glitter introduced. Still declining after 2.5yr. Worst investment in history." },
-    { name: "Copenhagen 2024", date: "2024-03-31", monthsOld: monthsSince("2024-03-31"), avgPaper: 0.12, avgMidTier: 2.15, avgHolo: 23.10, avgGold: 172.73, saleDays: 152, capsulePrice: 0.65, weight: 0.90, notes: "First CS2-native major. 152-day sale (longest). Embroidered quality introduced. donk Gold ~$111. Slowly climbing +10% monthly. Inflection at ~6mo post-removal." },
-    { name: "Shanghai 2024", date: "2024-12-15", monthsOld: monthsSince("2024-12-15"), avgPaper: 0.09, avgMidTier: 1.19, avgHolo: 22.48, avgGold: 96.10, saleDays: 130, capsulePrice: 0.92, weight: 0.95, notes: "First China major. Team Spirit won. 20% of Paris volume. Volatile early. Sale removed Apr 2025." },
-    { name: "Austin 2025", date: "2025-06-15", monthsOld: monthsSince("2025-06-15"), avgPaper: 0.05, avgMidTier: 0.34, avgHolo: 16.12, avgGold: 41.54, saleDays: 49, capsulePrice: 0.42, weight: 1.00, notes: "Shortest modern sale (49 days). Prices doubled within hours of removal. 121K listings vs Paris 377K. TYLOO holo $66. Best scarcity profile since Stockholm." },
+    { name: "Paris 2023", date: "2023-05-21", monthsOld: monthsSince("2023-05-21"), avgPaper: 0.14, avgMidTier: 0.73, avgHolo: 11.10, avgGold: 34.81, saleDays: 146, capsulePrice: 0.14, weight: 0.80, notes: "WORST investment in CS history. $110M+ revenue — most bought stickers EVER. 377K active listings. 146-day sale (5 months!) flooded supply beyond recovery. All capsule types LOST 56%. Glitter tier introduced. Proof that sale duration is the #1 price killer." },
+    { name: "Copenhagen 2024", date: "2024-03-31", monthsOld: monthsSince("2024-03-31"), avgPaper: 0.12, avgMidTier: 2.15, avgHolo: 23.10, avgGold: 172.73, saleDays: 152, capsulePrice: 0.65, weight: 0.90, notes: "First CS2-native major. 152-day sale (longest ever) hurt supply, BUT Embroidered quality introduced. donk Gold ~$111, z4KR Gold ~$128. Slowly climbing +10%/mo post-removal. Inflection ~6mo. CS2 novelty helped demand." },
+    { name: "Shanghai 2024", date: "2024-12-15", monthsOld: monthsSince("2024-12-15"), avgPaper: 0.09, avgMidTier: 1.19, avgHolo: 22.48, avgGold: 96.10, saleDays: 130, capsulePrice: 0.92, weight: 0.95, notes: "First China major — huge CN buyer pool. Team Spirit won. Only 20% of Paris volume = much better supply profile. 130-day sale still long. Sale removed Apr 2025. Early volatile but stabilising." },
+    { name: "Austin 2025", date: "2025-06-15", monthsOld: monthsSince("2025-06-15"), avgPaper: 0.05, avgMidTier: 0.34, avgHolo: 16.12, avgGold: 41.54, saleDays: 49, capsulePrice: 0.42, weight: 1.00, notes: "Shortest modern sale (49 days) = best scarcity since Stockholm. Only 121K listings vs Paris 377K. Prices doubled within hours of removal. TYLOO Holo $66. Most relevant comparable for Budapest — recent, short sale, modern market." },
   ];
   // Set Skinport defaults for all entries (will be overridden by live data below)
   for (const m of historicalMajors) { m.skinportVol7d = m.skinportVol7d || 0; m.skinportVol30d = m.skinportVol30d || 0; m.skinportAvgPrice = m.skinportAvgPrice || 0; m.skinportListings = m.skinportListings || 0; }
@@ -2104,6 +2327,25 @@ async function main() {
   const skinportCheaperCount = priceComparisonItems.filter(r => r.skinportPriceAdj < r.currentPrice).length;
   const topPriceDiffs = [...priceComparisonItems].map(r => ({ ...r, diff: r.skinportPriceAdj - r.currentPrice, diffPct: ((r.skinportPriceAdj - r.currentPrice) / r.currentPrice * 100) })).sort((a, b) => Math.abs(b.diffPct) - Math.abs(a.diffPct)).slice(0, 15);
 
+  // ── SteamAnalyst third-party aggregates ──────────────────────────
+  const saItemsWithData = data.filter(r => r.saAvg7d > 0 || r.saVol7d > 0);
+  const saTotal7dVol = data.reduce((a, r) => a + r.saVol7d, 0);
+  const saTotal24hVol = data.reduce((a, r) => a + r.saVol24h, 0);
+  const saAvgDailyVolTotal = data.reduce((a, r) => a + r.saAvgDailyVol, 0);
+  const saManipulationCount = data.filter(r => r.saManipulation).length;
+  const saSuspiciousCount = data.filter(r => r.saSuspicious).length;
+  const saTopByVol = [...data].filter(r => r.saVol7d > 0).sort((a, b) => b.saVol7d - a.saVol7d).slice(0, 20);
+  const saManipulated = data.filter(r => r.saManipulation || r.saSuspicious);
+  const saYoYMovers = [...data].filter(r => r.saYoYChange !== 0 && r.saAvg7d1yr > 0).sort((a, b) => b.saYoYChange - a.saYoYChange);
+  const saTopYoYGainers = saYoYMovers.filter(r => r.saYoYChange > 0).slice(0, 10);
+  const saTopYoYLosers = saYoYMovers.filter(r => r.saYoYChange < 0).slice(-10).reverse();
+  // Steam vs SteamAnalyst price comparison
+  const saComparisonItems = data.filter(r => r.currentPrice > 0 && r.saAvg7d > 0);
+  const saAvgSteamPrice = saComparisonItems.length > 0 ? saComparisonItems.reduce((a, r) => a + r.currentPrice, 0) / saComparisonItems.length : 0;
+  const saAvgSAPrice = saComparisonItems.length > 0 ? saComparisonItems.reduce((a, r) => a + r.saAvg7d, 0) / saComparisonItems.length : 0;
+  const saSteamHigherCount = saComparisonItems.filter(r => r.currentPrice > r.saAvg7d).length;
+  const saSAHigherCount = saComparisonItems.filter(r => r.saAvg7d > r.currentPrice).length;
+
   // ── Generate HTML ─────────────────────────────────────────────────
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -2427,6 +2669,7 @@ async function main() {
   <a href="#leaderboard-section">Leaderboards</a>
   <a href="#market-section">Market</a>
   <a href="#thirdparty-section">Skinport</a>
+  <a href="#steamanalyst-section">SteamAnalyst</a>
   <a href="#history-section">History</a>
   <a href="#weekly-section">Weekly</a>
   <a href="#predictions-section">Predictions</a>
@@ -2455,7 +2698,7 @@ async function main() {
     <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank"><img class="steam-avatar" src="${config.steamProfile.avatarUrl}" alt="${config.steamProfile.displayName}"></a>
     <div class="steam-profile-info">
       <div class="steam-profile-name"><a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank">${config.steamProfile.displayName}</a></div>
-      <div class="steam-profile-sub">${config.event} Major Sticker Portfolio &middot; Last updated ${todayFull} &middot; <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}/inventory/" target="_blank">${history.entries.length} snapshot${history.entries.length !== 1 ? 's' : ''}</a></div>
+      <div class="steam-profile-sub">${config.event} Major Sticker Portfolio &middot; Last updated <span class="local-time" data-utc="${now.toISOString()}">${todayFull}</span> &middot; <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}/inventory/" target="_blank">${history.entries.length} snapshot${history.entries.length !== 1 ? 's' : ''}</a></div>
     </div>
     <div class="steam-profile-links">
       <a class="steam-link-btn" href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}/inventory/" target="_blank">Inventory</a>
@@ -2482,7 +2725,7 @@ async function main() {
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:4px;">
   <div>
     <h1>${config.event} Major Sticker Investments</h1>
-<div class="subtitle">All prices ${config.currency} &middot; Buy price ${config.currencySymbol}${config.costPerUnit}/ea &middot; <span>${data.length} items, ${grandQty} stickers</span> &middot; Prices last updated <strong style="color:#67c1f5">${todayFull}</strong></div>
+<div class="subtitle">All prices ${config.currency} &middot; Buy price ${config.currencySymbol}${config.costPerUnit}/ea &middot; <span>${data.length} items, ${grandQty} stickers</span> &middot; Prices last updated <strong style="color:#67c1f5"><span class="local-time" data-utc="${now.toISOString()}">${todayFull}</span></strong></div>
   </div>
 </div>
 
@@ -2955,6 +3198,103 @@ ${topPriceDiffs.map(r => {
 </div>
 ` : ''}
 
+${saItemsWithData.length > 0 ? `
+<h3 id="steamanalyst-section">Third-Party Market Data (SteamAnalyst)</h3>
+<p style="color:#888;font-size:12px;margin-bottom:12px;">Pricing and volume data from <a href="https://steamanalyst.com" target="_blank">SteamAnalyst</a>, which aggregates data from Steam Market, BUFF163, and other marketplaces. Prices converted from USD to AUD at ${USD_TO_AUD.toFixed(4)} rate. Includes <strong>price manipulation detection</strong> and year-over-year comparisons. Updated every price fetch (1 API call = all items).</p>
+<div class="market-summary">
+  <div class="card"><div class="card-label">Items Tracked</div><div class="card-value neutral">${saItemsWithData.length}</div><div class="card-sub">${config.event} stickers</div></div>
+  <div class="card"><div class="card-label">24h Volume</div><div class="card-value" style="color:#22c55e">${saTotal24hVol.toLocaleString()}</div><div class="card-sub">Sales in last 24 hours</div></div>
+  <div class="card"><div class="card-label">7-Day Volume</div><div class="card-value" style="color:#60a5fa">${saTotal7dVol.toLocaleString()}</div><div class="card-sub">Sales in last 7 days</div></div>
+  <div class="card"><div class="card-label">Avg Daily Volume</div><div class="card-value" style="color:#c084fc">${saAvgDailyVolTotal.toLocaleString()}</div><div class="card-sub">Average daily sales</div></div>
+  <div class="card"><div class="card-label">Manipulation Flags</div><div class="card-value" style="color:${saManipulationCount > 0 ? '#ef4444' : '#22c55e'}">${saManipulationCount}</div><div class="card-sub">${saSuspiciousCount} suspicious</div></div>
+</div>
+
+${saManipulated.length > 0 ? `
+<h4 style="color:#ef4444;margin-top:20px;margin-bottom:12px;">Price Manipulation Alerts</h4>
+<p style="color:#888;font-size:12px;margin-bottom:8px;">Items flagged by SteamAnalyst for ongoing price manipulation or suspicious pricing activity. Exercise caution when buying or valuing these items — prices may not reflect genuine market demand.</p>
+<div style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<table>
+<thead><tr><th>Sticker</th><th>Quality</th><th>Steam Price</th><th>SA 7d Avg</th><th>SA Safe Price</th><th>Flag</th></tr></thead>
+<tbody>
+${saManipulated.map(r => {
+  const qc = r.quality.toLowerCase();
+  const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+  const flag = r.saManipulation ? '<span style="color:#ef4444;font-weight:700">MANIPULATION</span>' : '<span style="color:#f59e0b;font-weight:700">SUSPICIOUS</span>';
+  return '<tr><td>' + r.name + '</td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td>' +
+    '<td style="color:#67c1f5">$' + r.currentPrice.toFixed(2) + '</td>' +
+    '<td>$' + r.saAvg7d.toFixed(2) + '</td>' +
+    '<td style="color:#f59e0b">' + (r.saSafePrice > 0 ? '$' + r.saSafePrice.toFixed(2) : '—') + '</td>' +
+    '<td>' + flag + '</td></tr>';
+}).join('\\n')}
+</tbody>
+</table>
+</div>
+` : ''}
+
+<div class="split-tables">
+  <div class="sub-table">
+    <h4 style="color:#60a5fa">Most Traded (SA 7-Day Volume)</h4>
+    <div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <table>
+    <thead><tr><th>Sticker</th><th>Quality</th><th>7d Vol</th><th>24h Vol</th><th>Avg/Day</th><th>SA 7d Avg</th></tr></thead>
+    <tbody>
+    ${saTopByVol.map(r => {
+      const qc = r.quality.toLowerCase();
+      const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+      return '<tr><td>' + r.name + '</td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td style="font-weight:700;color:#60a5fa">' + r.saVol7d + '</td><td>' + r.saVol24h + '</td><td>' + r.saAvgDailyVol + '</td><td>$' + r.saAvg7d.toFixed(2) + '</td></tr>';
+    }).join('\\n')}
+    </tbody>
+    </table>
+    </div>
+  </div>
+  <div class="sub-table">
+    <h4 style="color:#22c55e">Year-over-Year Gainers</h4>
+    <div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <table>
+    <thead><tr><th>Sticker</th><th>Quality</th><th>Now (7d Avg)</th><th>1yr Ago</th><th>YoY Change</th></tr></thead>
+    <tbody>
+    ${saTopYoYGainers.length > 0 ? saTopYoYGainers.map(r => {
+      const qc = r.quality.toLowerCase();
+      const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+      return '<tr><td>' + r.name + '</td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td>$' + r.saAvg7d.toFixed(2) + '</td><td style="color:#888">$' + r.saAvg7d1yr.toFixed(2) + '</td><td class="positive" style="font-weight:700">+' + r.saYoYChange.toFixed(1) + '%</td></tr>';
+    }).join('\\n') : '<tr><td colspan="5" style="color:#555;text-align:center">No YoY data available yet</td></tr>'}
+    </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+
+${saTopYoYLosers.length > 0 ? `
+<div style="margin-top:16px;">
+  <h4 style="color:#ef4444">Year-over-Year Losers</h4>
+  <div style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+  <table>
+  <thead><tr><th>Sticker</th><th>Quality</th><th>Now (7d Avg)</th><th>1yr Ago</th><th>YoY Change</th></tr></thead>
+  <tbody>
+  ${saTopYoYLosers.map(r => {
+    const qc = r.quality.toLowerCase();
+    const cls = qc.includes('holo') ? 'holo' : qc.includes('embroidered') ? 'embroidered' : qc.includes('gold') ? 'gold' : qc.includes('champion') ? 'champion' : 'normal';
+    return '<tr><td>' + r.name + '</td><td><span class="quality-badge q-' + cls + '">' + r.quality + '</span></td><td>$' + r.saAvg7d.toFixed(2) + '</td><td style="color:#888">$' + r.saAvg7d1yr.toFixed(2) + '</td><td class="negative" style="font-weight:700">' + r.saYoYChange.toFixed(1) + '%</td></tr>';
+  }).join('\\n')}
+  </tbody>
+  </table>
+  </div>
+</div>
+` : ''}
+
+<h4 style="color:#fff;margin-top:24px;margin-bottom:12px;">Steam vs SteamAnalyst Price Comparison</h4>
+<p style="color:#888;font-size:12px;margin-bottom:12px;">SteamAnalyst's 7-day average (converted to AUD) compared to Steam's current lowest listing. Differences indicate pricing discrepancies between instant-buy (Steam) and average recent sale price (SA).</p>
+<div class="market-summary">
+  <div class="card"><div class="card-label">Items Compared</div><div class="card-value neutral">${saComparisonItems.length}</div><div class="card-sub">Have both Steam & SA prices</div></div>
+  <div class="card"><div class="card-label">Avg Steam Price</div><div class="card-value" style="color:#67c1f5">$${saAvgSteamPrice.toFixed(3)}</div><div class="card-sub">AUD lowest listing</div></div>
+  <div class="card"><div class="card-label">SA 7d Avg Price</div><div class="card-value" style="color:#f59e0b">$${saAvgSAPrice.toFixed(3)}</div><div class="card-sub">AUD (converted from USD)</div></div>
+  <div class="card"><div class="card-label">Higher On</div><div class="card-value" style="color:#22c55e">${saSteamHigherCount > saSAHigherCount ? 'Steam (' + saSteamHigherCount + ')' : saSAHigherCount > saSteamHigherCount ? 'SA Avg (' + saSAHigherCount + ')' : 'Even'}</div><div class="card-sub">Steam: ${saSteamHigherCount} | SA: ${saSAHigherCount}</div></div>
+</div>
+` : `
+<h3 id="steamanalyst-section">Third-Party Market Data (SteamAnalyst)</h3>
+<p style="color:#555;text-align:center;padding:20px;">No SteamAnalyst data available. Set the <code>STEAMANALYST_API_KEY</code> environment variable to enable. Free tier: 100 requests/day. <a href="https://steamanalyst.com/api-info" target="_blank" style="color:#67c1f5">Get your API key</a></p>
+`}
+
 <h3 id="history-section">Snapshot History (${history.entries.length} snapshots)</h3>
 <p style="color:#888;font-size:12px;margin-bottom:12px;">Every time prices are fetched, a snapshot is saved. Charts show day-to-day changes and cumulative P/L. The table includes <span style="color:#c084fc">predicted value</span> at each date (based on weighted major projections) vs <span style="color:#67c1f5">actual value</span> — showing how well the prediction model tracks reality.</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px;">
@@ -3059,6 +3399,7 @@ ${weeklySnapshots.length > 0 ? `
   <th title="Skinport average price with 15% markup for Steam fee parity" style="color:#c084fc;border-left:1px solid #2a475e;">SP Price (+15%)</th>
   <th title="Skinport 7-day sales volume" style="color:#60a5fa;">SP Vol 7d</th>
   <th title="Active listings on Skinport" style="color:#f59e0b;">SP Listings</th>
+  <th style="min-width:200px;border-left:1px solid #2a475e;">Why It Performed This Way</th>
 </tr></thead>
 <tbody>
 ${projections.map(p => {
@@ -3087,6 +3428,7 @@ ${projections.map(p => {
     '<td style="color:#c084fc;border-left:1px solid #2a475e;">' + (m.skinportAvgPrice > 0 ? '$' + m.skinportAvgPrice.toFixed(2) : '<span style="color:#555">—</span>') + '</td>' +
     '<td style="color:#60a5fa">' + (m.skinportVol7d > 0 ? m.skinportVol7d.toLocaleString() : '<span style="color:#555">—</span>') + '</td>' +
     '<td style="color:#f59e0b">' + (m.skinportListings > 0 ? m.skinportListings.toLocaleString() : '<span style="color:#555">—</span>') + '</td>' +
+    '<td style="color:#8f98a0;font-size:11px;max-width:280px;line-height:1.3;border-left:1px solid #2a475e;">' + m.notes + '</td>' +
   '</tr>';
 }).join('\n')}
 <tr style="border-top:2px solid #ffd700;font-weight:600;">
@@ -3102,6 +3444,7 @@ ${projections.map(p => {
   <td style="color:#c084fc;border-left:1px solid #2a475e;">${skinportTotalListings > 0 ? '$' + (data.reduce((a, r) => a + (r.skinportVol7d > 0 ? r.currentPrice : 0), 0) / Math.max(data.filter(r => r.skinportVol7d > 0).length, 1)).toFixed(2) : '—'}</td>
   <td style="color:#60a5fa">${skinportTotal7dVol > 0 ? skinportTotal7dVol.toLocaleString() : '—'}</td>
   <td style="color:#f59e0b">${skinportTotalListings > 0 ? skinportTotalListings.toLocaleString() : '—'}</td>
+  <td style="color:#67c1f5;font-size:11px;border-left:1px solid #2a475e;">Your active investment. Track progress above.</td>
 </tr>
 </tbody>
 </table>
@@ -3459,6 +3802,15 @@ ${data.map((r, idx) => {
 </div><!-- end .page-content -->
 
 <script>
+// Convert UTC timestamps to browser local time
+document.querySelectorAll('.local-time').forEach(el => {
+  const utc = el.getAttribute('data-utc');
+  if (utc) {
+    const d = new Date(utc);
+    const opts = { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' };
+    el.textContent = d.toLocaleString(undefined, opts);
+  }
+});
 function filterTable() {
   const s = document.getElementById('search').value.toLowerCase();
   const q = document.getElementById('qualFilter').value;
@@ -4152,6 +4504,29 @@ function downloadCSV() {
   URL.revokeObjectURL(url);
 }
 </script>
+
+<footer style="margin-top:48px;padding:24px 0;border-top:1px solid #2a475e;text-align:center;">
+  <p style="color:#8f98a0;font-size:12px;margin-bottom:8px;">Data Sources & Credits</p>
+  <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-bottom:12px;">
+    <a href="https://steamcommunity.com/market/" target="_blank" style="color:#67c1f5;font-size:11px;text-decoration:none;">Steam Community Market</a>
+    <span style="color:#2a475e;">|</span>
+    <a href="https://skinport.com" target="_blank" style="color:#c084fc;font-size:11px;text-decoration:none;">Skinport <span style="color:#888;font-size:10px;">(prices include +15% Steam fee markup)</span></a>
+    <span style="color:#2a475e;">|</span>
+    <a href="https://steamanalyst.com" target="_blank" style="color:#f59e0b;font-size:11px;text-decoration:none;">SteamAnalyst</a>
+    <span style="color:#2a475e;">|</span>
+    <a href="https://swap.gg/blog/cs-major-sticker-sale-returns" target="_blank" style="color:#60a5fa;font-size:11px;text-decoration:none;">Swap.gg</a>
+    <span style="color:#2a475e;">|</span>
+    <a href="https://skinflow.gg/csgo-stash/graph/overview" target="_blank" style="color:#22c55e;font-size:11px;text-decoration:none;">Skinflow</a>
+    <span style="color:#2a475e;">|</span>
+    <a href="https://stash.clash.gg/" target="_blank" style="color:#f97316;font-size:11px;text-decoration:none;">CS Stash (Clash.gg)</a>
+    <span style="color:#2a475e;">|</span>
+    <a href="https://csgoskins.gg" target="_blank" style="color:#ef4444;font-size:11px;text-decoration:none;">csgoskins.gg</a>
+    <span style="color:#2a475e;">|</span>
+    <a href="https://esportfire.com" target="_blank" style="color:#ffd700;font-size:11px;text-decoration:none;">esportfire</a>
+  </div>
+  <p style="color:#555;font-size:10px;">Historical major data sourced from Swap.gg, esportfire, Skinflow, and csgoskins.gg research. Skinport prices adjusted +15% for Steam seller fee parity. SteamAnalyst prices converted USD&rarr;AUD at live exchange rate. This is not financial advice.</p>
+</footer>
+
 </body>
 </html>`;
 
