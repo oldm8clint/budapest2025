@@ -626,24 +626,24 @@
     },
     {
       "date": "2026-03-14-11",
-      "totalValue": 2019.6599999999994,
+      "totalValue": 2024.2199999999998,
       "totalItems": 60,
       "categoryValues": {
         "Skins": {
           "count": 12,
-          "value": 1363.4899999999998
+          "value": 1363.5399999999997
         },
         "Cases": {
           "count": 19,
-          "value": 319.39
+          "value": 333.64
         },
         "Sticker Investments": {
           "count": 1,
-          "value": 314.57000000000016
+          "value": 304.85000000000025
         },
         "Stickers": {
           "count": 6,
-          "value": 21.77
+          "value": 21.75
         },
         "Graffiti": {
           "count": 15,
@@ -665,20 +665,20 @@
       "itemPrices": {
         "★ Specialist Gloves | Field Agent (Minimal Wear)": 788.29,
         "M4A4 | X-Ray (Factory New)": 569.87,
-        "Operation Breakout Weapon Case": 16.81,
-        "__budapest_sticker_lot__": 314.57000000000016,
+        "Operation Breakout Weapon Case": 17.56,
+        "__budapest_sticker_lot__": 304.85000000000025,
         "Sticker | Snax | Krakow 2017": 8.51,
         "Sticker | Xyp9x | Krakow 2017": 4.23,
         "Sticker | Kjaerbye | Krakow 2017": 3.31,
         "Sticker | fer | Krakow 2017": 3.11,
-        "Desert Eagle | Directive (Field-Tested)": 2.48,
-        "Sticker | Evidence (Holo)": 1.54,
-        "Sticker | Co Co Co": 1.07,
+        "Desert Eagle | Directive (Field-Tested)": 2.57,
+        "Sticker | Evidence (Holo)": 1.53,
+        "Sticker | Co Co Co": 1.06,
         "StatTrak™ Glock-18 | Off World (Well-Worn)": 1.01,
         "Sawed-Off | Zander (Well-Worn)": 0.76,
         "Souvenir AUG | Colony (Field-Tested)": 0.64,
-        "SCAR-20 | Carbon Fiber (Factory New)": 0.27,
-        "M4A4 | Aeolian Dark (Battle-Scarred)": 0.09,
+        "SCAR-20 | Carbon Fiber (Factory New)": 0.25,
+        "M4A4 | Aeolian Dark (Battle-Scarred)": 0.07,
         "Sealed Graffiti | GTG (Cash Green)": 0.04,
         "Sealed Graffiti | Eat It (Violent Violet)": 0.04,
         "Sealed Graffiti | Mr. Teeth (Tiger Orange)": 0.04,
