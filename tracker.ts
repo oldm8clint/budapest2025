@@ -4055,16 +4055,14 @@ function sortTable(col) {
 }
 
 ${portfolioHistory.length > 1 ? `
-// Enable zoom/pan on all charts (scroll to zoom, drag to pan, double-click to reset)
-if (typeof ChartZoom !== 'undefined') {
-  Chart.register(ChartZoom);
+// chartjs-plugin-zoom auto-registers when loaded via script tag
+// Just configure the default zoom/pan settings
+try {
   Chart.defaults.plugins.zoom = {
-    zoom: { wheel: { enabled: true, speed: 0.1 }, pinch: { enabled: true }, mode: 'x',
-      onZoomComplete: function({chart}) { chart.options.plugins.zoom.pan.enabled = true; } },
+    zoom: { wheel: { enabled: true, speed: 0.1 }, pinch: { enabled: true }, mode: 'x' },
     pan: { enabled: true, mode: 'x' },
   };
-}
-const zoomOpts = undefined; // not needed, using global defaults
+} catch(e) { /* zoom plugin not loaded */ }
 const ctx = document.getElementById('portfolioChart').getContext('2d');
 new Chart(ctx, {
   type: 'line',
