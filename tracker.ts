@@ -2313,21 +2313,24 @@ async function main() {
     console.log(`  ${alt.name}: $${alt.investedValue.toFixed(2)} AUD (${alt.roi >= 0 ? '+' : ''}${alt.roi.toFixed(1)}%)`);
   }
 
-  // ── Fun Investment Comparison (CS2 Commodities) ──────────────────────
-  // What if you invested the same amount in other popular CS2 items?
+  // ── Fun Investment Comparison (CS2 Items + Real-World Assets) ──────────
+  // What if you invested the same amount in other things?
   interface FunInvestment {
     name: string;
-    hashName: string;
-    purchasePriceAud: number; // approximate price at sticker purchase date
+    purchasePriceAud: number;
     currentPriceAud: number;
     color: string;
-    icon: string; // emoji
+    icon: string;
     note: string;
+    category: 'cs2' | 'crypto' | 'commodity' | 'collectible' | 'stock';
+    unit: string; // e.g. "each", "oz", "coin"
   }
-  const funInvestmentDefs = [
-    { name: 'Austin 2025 Capsules', hashName: 'Austin 2025 Legends Sticker Capsule', purchasePriceAud: 0.39, color: '#e74c3c', icon: '🏆', note: 'Most comparable — shortest modern sale (49 days)' },
-    { name: 'Shanghai 2024 Capsules', hashName: 'Shanghai 2024 Legends Sticker Capsule', purchasePriceAud: 0.39, color: '#e67e22', icon: '🐉', note: 'First China major, removed Apr 2025' },
-    { name: 'Copenhagen 2024 Capsules', hashName: 'Copenhagen 2024 Legends Sticker Capsule', purchasePriceAud: 0.39, color: '#3498db', icon: '🇩🇰', note: 'First CS2-native major, 152-day sale' },
+
+  // CS2 items with Steam market_hash_names
+  const cs2FunDefs = [
+    { name: 'Austin 2025 Capsules', hashName: 'Austin 2025 Legends Sticker Capsule', purchasePriceAud: 0.35, color: '#e74c3c', icon: '🏆', note: 'Shortest modern sale (49 days)' },
+    { name: 'Shanghai 2024 Capsules', hashName: 'Shanghai 2024 Legends Sticker Capsule', purchasePriceAud: 0.35, color: '#e67e22', icon: '🐉', note: 'First China major' },
+    { name: 'Copenhagen 2024 Capsules', hashName: 'Copenhagen 2024 Legends Sticker Capsule', purchasePriceAud: 0.35, color: '#3498db', icon: '🇩🇰', note: 'First CS2-native major' },
     { name: 'Kilowatt Case', hashName: 'Kilowatt Case', purchasePriceAud: 1.60, color: '#f1c40f', icon: '⚡', note: 'Popular active drop case' },
     { name: 'Gallery Case', hashName: 'Gallery Case', purchasePriceAud: 1.50, color: '#9b59b6', icon: '🎨', note: 'Newest case with desirable skins' },
     { name: 'Revolution Case', hashName: 'Revolution Case', purchasePriceAud: 0.15, color: '#2ecc71', icon: '✊', note: 'Affordable case investment' },
@@ -2337,9 +2340,10 @@ async function main() {
     { name: 'Snakebite Case', hashName: 'Snakebite Case', purchasePriceAud: 6.50, color: '#27ae60', icon: '🐍', note: 'Operation case with rare skins' },
   ];
 
-  console.log(`\nFetching fun investment prices (${funInvestmentDefs.length} CS2 items)...`);
+  // Fetch CS2 item prices
+  console.log(`\nFetching fun investment prices (${cs2FunDefs.length} CS2 items)...`);
   const funInvestments: FunInvestment[] = [];
-  for (const def of funInvestmentDefs) {
+  for (const def of cs2FunDefs) {
     try {
       const hashForUrl = def.hashName.includes('%') ? def.hashName : encodeURIComponent(def.hashName);
       const res = await fetch(`https://steamcommunity.com/market/priceoverview/?currency=${config.currencyCode}&appid=730&market_hash_name=${hashForUrl}`);
@@ -2350,22 +2354,79 @@ async function main() {
           const currentPrice = parseFloat(priceStr) || 0;
           if (currentPrice > 0) {
             funInvestments.push({
-              name: def.name,
-              hashName: def.hashName,
-              purchasePriceAud: def.purchasePriceAud,
-              currentPriceAud: currentPrice,
-              color: def.color,
-              icon: def.icon,
-              note: def.note,
+              name: def.name, purchasePriceAud: def.purchasePriceAud, currentPriceAud: currentPrice,
+              color: def.color, icon: def.icon, note: def.note, category: 'cs2', unit: 'each',
             });
             console.log(`  ${def.name}: $${currentPrice.toFixed(2)} AUD (was ~$${def.purchasePriceAud.toFixed(2)})`);
           }
         }
       }
-      await new Promise(r => setTimeout(r, 1500)); // rate limit
-    } catch { /* skip failed items */ }
+      await new Promise(r => setTimeout(r, 1500));
+    } catch {}
   }
-  console.log(`  Fetched ${funInvestments.length}/${funInvestmentDefs.length} fun investment prices`);
+  console.log(`  Fetched ${funInvestments.length}/${cs2FunDefs.length} CS2 prices`);
+
+  // Add real-world assets using already-fetched data (gold, silver, crypto)
+  // Convert USD purchase amounts to AUD for comparison
+  const audPerUsd = exchangeRates.usdToAud;
+  if (currentGoldUsd > 0) {
+    funInvestments.push({ name: 'Gold', purchasePriceAud: histGoldUsd * audPerUsd, currentPriceAud: currentGoldUsd * audPerUsd,
+      color: '#ffd700', icon: '🥇', note: 'Traditional safe haven', category: 'commodity', unit: 'oz' });
+  }
+  if (currentSilverUsd > 0) {
+    funInvestments.push({ name: 'Silver', purchasePriceAud: histSilverUsd * audPerUsd, currentPriceAud: currentSilverUsd * audPerUsd,
+      color: '#c0c0c0', icon: '🥈', note: 'Precious metal', category: 'commodity', unit: 'oz' });
+  }
+  if (exchangeRates.btcUsd > 0 && historicalCrypto.btc > 0) {
+    funInvestments.push({ name: 'Bitcoin', purchasePriceAud: historicalCrypto.btc * audPerUsd, currentPriceAud: exchangeRates.btcUsd * audPerUsd,
+      color: '#f7931a', icon: '₿', note: 'Digital gold', category: 'crypto', unit: 'BTC' });
+  }
+  if (exchangeRates.ethUsd > 0 && historicalCrypto.eth > 0) {
+    funInvestments.push({ name: 'Ethereum', purchasePriceAud: historicalCrypto.eth * audPerUsd, currentPriceAud: exchangeRates.ethUsd * audPerUsd,
+      color: '#627eea', icon: 'Ξ', note: 'Smart contract platform', category: 'crypto', unit: 'ETH' });
+  }
+  if (exchangeRates.solUsd > 0 && historicalCrypto.sol > 0) {
+    funInvestments.push({ name: 'Solana', purchasePriceAud: historicalCrypto.sol * audPerUsd, currentPriceAud: exchangeRates.solUsd * audPerUsd,
+      color: '#9945ff', icon: '◎', note: 'High-speed blockchain', category: 'crypto', unit: 'SOL' });
+  }
+
+  // Pokemon cards — hardcoded estimates (no free API)
+  // Prices are approximate AUD values for sealed product
+  funInvestments.push({ name: 'Pokemon 151 Booster Box', purchasePriceAud: 175, currentPriceAud: 260,
+    color: '#ff0000', icon: '🎴', note: 'Modern classic set, sealed', category: 'collectible', unit: 'box' });
+  funInvestments.push({ name: 'Pokemon Surging Sparks ETB', purchasePriceAud: 75, currentPriceAud: 65,
+    color: '#ffcb05', icon: '⚡', note: 'Latest set, still in print', category: 'collectible', unit: 'box' });
+  funInvestments.push({ name: 'Pokemon Evolving Skies BB', purchasePriceAud: 180, currentPriceAud: 450,
+    color: '#3b4cca', icon: '🐉', note: 'Top SWSH set, Eeveelutions', category: 'collectible', unit: 'box' });
+
+  // Stocks — fetch current prices from Yahoo Finance API
+  const stockDefs = [
+    { name: 'S&P 500 (VOO)', symbol: 'VOO', purchasePriceUsd: 510, color: '#1a73e8', icon: '📈', note: 'US market index ETF', category: 'stock' as const },
+    { name: 'Apple (AAPL)', symbol: 'AAPL', purchasePriceUsd: 228, color: '#555555', icon: '🍎', note: 'Tech giant', category: 'stock' as const },
+    { name: 'Tesla (TSLA)', symbol: 'TSLA', purchasePriceUsd: 248, color: '#cc0000', icon: '🚗', note: 'EV & energy', category: 'stock' as const },
+    { name: 'NVIDIA (NVDA)', symbol: 'NVDA', purchasePriceUsd: 118, color: '#76b900', icon: '🎮', note: 'AI chip leader', category: 'stock' as const },
+  ];
+  console.log(`  Fetching ${stockDefs.length} stock prices...`);
+  for (const stock of stockDefs) {
+    try {
+      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${stock.symbol}?interval=1d&range=1d`);
+      if (res.ok) {
+        const data = await res.json() as any;
+        const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+        if (price && price > 0) {
+          funInvestments.push({
+            name: stock.name, purchasePriceAud: stock.purchasePriceUsd * audPerUsd,
+            currentPriceAud: price * audPerUsd, color: stock.color, icon: stock.icon,
+            note: stock.note, category: 'stock' as any, unit: 'share',
+          });
+          console.log(`  ${stock.name}: $${price.toFixed(2)} USD ($${(price * audPerUsd).toFixed(2)} AUD)`);
+        }
+      }
+    } catch {}
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  console.log(`  Total fun investments: ${funInvestments.length} items`);
 
   // ── Generate CSV ──────────────────────────────────────────────────
   let csvOut = "Sticker Name,Quality,Qty,Cost/Unit (AUD),Total Cost (AUD),Current Price (AUD),Total Value (AUD),Profit/Loss (AUD),ROI %,Steam Market Link\n";
@@ -2493,6 +2554,8 @@ async function main() {
   /* Main table — Steam market style */
   table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
   thead { position: sticky; top: 48px; z-index: 50; }
+  h3[id] { scroll-margin-top: 60px; }
+  table { scroll-margin-top: 60px; }
   th { background: #1a3a52; color: #8f98a0; padding: 8px 8px; text-align: left; border-bottom: 1px solid #0e1a26; cursor: pointer; user-select: none; white-space: nowrap; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; transition: color 0.2s; box-shadow: 0 1px 0 #0e1a26; }
   th:hover { color: #66c0f4; }
   td { padding: 7px 8px; border-bottom: 1px solid rgba(0,0,0,0.15); font-variant-numeric: tabular-nums; }
@@ -2738,7 +2801,7 @@ async function main() {
   <a href="#weekly-section">Weekly</a>
   <a href="#predictions-section">Predictions</a>
   <a href="#altinvest-section">vs Assets</a>
-  <a href="#funinvest-section">vs CS2 Items</a>
+  <a href="#funinvest-section">What If</a>
   <a href="#capsule-section">Capsules</a>
   <a href="#browse-section">Browse</a>
   <a href="#inventory-section">Inventory</a>
@@ -3376,7 +3439,7 @@ ${saTopYoYLosers.length > 0 ? `
 <summary style="cursor:pointer;color:#67c1f5;font-weight:600;padding:8px 0;user-select:none;">Snapshot Details (${history.entries.length} entries) — click to collapse</summary>
 <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table class="history-table" style="max-width: 1000px;">
-<thead style="position:sticky;top:0;background:#171a21;z-index:1;"><tr><th>Date</th><th>Actual Value</th><th title="Predicted value based on weighted historical major performance at this age">Predicted</th><th>Pred Accuracy</th><th>P/L vs Cost</th><th>ROI</th><th>Day Change</th><th>Avg Sticker</th></tr></thead>
+<thead><tr><th>Date</th><th>Actual Value</th><th title="Predicted value based on weighted historical major performance at this age">Predicted</th><th>Pred Accuracy</th><th>P/L vs Cost</th><th>ROI</th><th>Day Change</th><th>Avg Sticker</th></tr></thead>
 <tbody>
 ${(() => {
   const firstDate = history.entries.length > 0 ? new Date(history.entries[0].date.slice(0, 10)) : new Date();
@@ -3657,47 +3720,47 @@ ${altInvestments.map(a => {
 ` : '<p style="color:#555;text-align:center;padding:20px;">Alternative investment data unavailable. Will appear on next update.</p>'}
 
 ${funInvestments.length > 0 ? `
-<h3 id="funinvest-section">Fun Investment Comparison &mdash; CS2 Commodities</h3>
-<p style="color:#888;font-size:13px;margin-bottom:16px;">What if you had invested your <strong style="color:#fff">$${grandCost.toFixed(2)} AUD</strong> in other popular CS2 items instead of ${config.event} stickers? Purchase prices are approximate values from around <strong style="color:#fff">${investmentDateStr}</strong>.</p>
+<h3 id="funinvest-section">What If You Invested Elsewhere?</h3>
+<p style="color:#888;font-size:13px;margin-bottom:16px;">What if you had invested your <strong style="color:#fff">$${grandCost.toFixed(2)} AUD</strong> in other assets instead of ${config.event} stickers around <strong style="color:#fff">${investmentDateStr}</strong>? CS2 items, stocks, crypto, collectibles &mdash; how would your portfolio look today?</p>
 
-<table class="history-table" style="max-width:1100px;margin-top:16px;">
+<table class="history-table" style="max-width:1200px;margin-top:16px;">
 <thead><tr>
-  <th>Item</th>
+  <th>Investment</th>
   <th>Buy Price</th>
   <th>Current Price</th>
-  <th>Item Change</th>
+  <th>Asset Change</th>
   <th>Qty You'd Own</th>
-  <th>Portfolio Value</th>
+  <th>$${grandCost.toFixed(0)} Would Be</th>
   <th>vs Stickers</th>
 </tr></thead>
 <tbody>
-<tr style="background:rgba(103,193,245,0.05);">
-  <td style="font-weight:600;color:#67c1f5">Budapest 2025 Stickers</td>
-  <td>$${config.costPerUnit.toFixed(2)}</td>
-  <td>$${avgStickerValue.toFixed(3)}</td>
-  <td class="${stickerROI >= 0 ? 'positive' : 'negative'}" style="font-weight:700">${stickerROI >= 0 ? '+' : ''}${stickerROI.toFixed(1)}%</td>
-  <td>${grandQty.toLocaleString()}</td>
-  <td style="font-weight:600" class="${grandValue >= grandCost ? 'positive' : 'negative'}">$${grandValue.toFixed(2)}</td>
-  <td style="color:#67c1f5;font-weight:600">&mdash;</td>
-</tr>
-${funInvestments.map(f => {
-  const itemChange = ((f.currentPriceAud - f.purchasePriceAud) / f.purchasePriceAud * 100);
-  const qtyBought = Math.floor(grandCost / f.purchasePriceAud);
-  const portfolioValue = qtyBought * f.currentPriceAud;
-  const vsDiff = portfolioValue - grandValue;
-  return '<tr>' +
-    '<td style="font-weight:600;color:' + f.color + '">' + f.icon + ' ' + f.name + '</td>' +
-    '<td>$' + f.purchasePriceAud.toFixed(2) + '</td>' +
-    '<td>$' + f.currentPriceAud.toFixed(2) + '</td>' +
-    '<td class="' + (itemChange >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + (itemChange >= 0 ? '+' : '') + itemChange.toFixed(1) + '%</td>' +
-    '<td>' + qtyBought.toLocaleString() + '</td>' +
-    '<td style="font-weight:600" class="' + (portfolioValue >= grandCost ? 'positive' : 'negative') + '">$' + portfolioValue.toFixed(2) + '</td>' +
-    '<td class="' + (vsDiff >= 0 ? 'negative' : 'positive') + '">' + (vsDiff >= 0 ? 'Behind by $' + vsDiff.toFixed(2) : 'Ahead by $' + Math.abs(vsDiff).toFixed(2)) + '</td>' +
-  '</tr>';
-}).join('\n')}
+${(() => {
+  const allRows = funInvestments.map(f => {
+    const itemChange = ((f.currentPriceAud - f.purchasePriceAud) / f.purchasePriceAud * 100);
+    const qtyRaw = grandCost / f.purchasePriceAud;
+    const qtyBought = f.category === 'crypto' || f.category === 'commodity' ? qtyRaw : Math.floor(qtyRaw);
+    const portfolioValue = qtyBought * f.currentPriceAud;
+    const vsDiff = portfolioValue - grandValue;
+    const qtyStr = f.category === 'crypto' ? qtyBought.toFixed(6) : f.category === 'commodity' ? qtyBought.toFixed(4) : qtyBought.toLocaleString();
+    return { ...f, itemChange, qtyBought, qtyStr, portfolioValue, vsDiff };
+  });
+  const catLabels: Record<string, string> = { cs2: 'CS2 Items', crypto: 'Crypto', commodity: 'Commodities', collectible: 'Collectibles', stock: 'Stocks' };
+  const catOrder = ['cs2', 'stock', 'crypto', 'commodity', 'collectible'];
+  let tableRows = '';
+  tableRows += '<tr style="background:rgba(103,193,245,0.05);"><td style="font-weight:600;color:#67c1f5">🎯 Your Budapest 2025 Stickers</td><td>$' + config.costPerUnit.toFixed(2) + '</td><td>$' + avgStickerValue.toFixed(3) + '</td><td class="' + (stickerROI >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + (stickerROI >= 0 ? '+' : '') + stickerROI.toFixed(1) + '%</td><td>' + grandQty.toLocaleString() + '</td><td style="font-weight:600" class="' + (grandValue >= grandCost ? 'positive' : 'negative') + '">$' + grandValue.toFixed(2) + '</td><td style="color:#67c1f5;font-weight:600">&mdash;</td></tr>';
+  for (const cat of catOrder) {
+    const items = allRows.filter(r => r.category === cat);
+    if (items.length === 0) continue;
+    tableRows += '<tr><td colspan="7" style="background:#0e1a26;color:#8f98a0;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:1px;padding:10px 12px;border-top:2px solid #1b2838;">' + (catLabels[cat] || cat) + '</td></tr>';
+    for (const f of items) {
+      tableRows += '<tr><td style="font-weight:600;color:' + f.color + '">' + f.icon + ' ' + f.name + '</td><td>$' + (f.purchasePriceAud >= 1000 ? f.purchasePriceAud.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : f.purchasePriceAud.toFixed(2)) + '</td><td>$' + (f.currentPriceAud >= 1000 ? f.currentPriceAud.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : f.currentPriceAud.toFixed(2)) + '</td><td class="' + (f.itemChange >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + (f.itemChange >= 0 ? '+' : '') + f.itemChange.toFixed(1) + '%</td><td>' + f.qtyStr + '</td><td style="font-weight:600" class="' + (f.portfolioValue >= grandCost ? 'positive' : 'negative') + '">$' + f.portfolioValue.toFixed(2) + '</td><td class="' + (f.vsDiff >= 0 ? 'negative' : 'positive') + '">' + (f.vsDiff >= 0 ? 'Behind by $' + f.vsDiff.toFixed(2) : 'Ahead by $' + Math.abs(f.vsDiff).toFixed(2)) + '</td></tr>';
+    }
+  }
+  return tableRows;
+})()}
 </tbody>
 </table>
-<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Purchase prices are estimated values at the time of sticker investment (~${investmentDateStr}). Current prices fetched live from Steam Community Market. Case quantities use floor division (can't buy fractional cases). All prices in AUD.</p>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">CS2 prices from Steam Market (live). Stock prices from Yahoo Finance. Crypto from CoinGecko. Gold/silver estimated. Pokemon card prices are approximate sealed product values. All converted to AUD. Purchase prices estimated at ~${investmentDateStr}. Fractional shares/coins shown for non-discrete assets.</p>
 ` : ''}
 
 <h3 id="capsule-section">Capsule Investment (${CAPSULE_QTY} Capsules)</h3>

@@ -190,20 +190,56 @@ async function fetchFullInventory(steamId64: string): Promise<InventoryItem[]> {
 }
 
 // ── Price Fetching ──────────────────────────────────────────────────
-// Uses Steam search/render API (same approach as tracker.ts fetchAllPricesBatch)
-// Searches by each unique item name — returns prices in cents, converted to dollars
+// Uses priceoverview API as primary source (accurate, small item count ~28).
+// Falls back to search/render for items that fail.
 async function fetchPrices(items: InventoryItem[]): Promise<Record<string, { price: number; listings: number }>> {
   const result: Record<string, { price: number; listings: number }> = {};
   const marketable = items.filter(i => i.marketable);
   const needed = new Set(marketable.map(i => i.market_hash_name));
 
-  // Build search terms — group items by shared search queries
+  // Primary: fetch each item via priceoverview (most accurate)
+  console.log(`  Fetching ${needed.size} items via priceoverview (accurate)...`);
+  let fetched = 0;
+  for (const hashName of needed) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const url = `https://steamcommunity.com/market/priceoverview/?appid=730&currency=${config.currencyCode}&market_hash_name=${encodeURIComponent(hashName)}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json() as any;
+          if (data.success && data.lowest_price) {
+            const price = parseFloat(data.lowest_price.replace(/[^0-9.]/g, '')) || 0;
+            if (price > 0) {
+              result[hashName] = { price, listings: 0 };
+              fetched++;
+              break;
+            }
+          }
+        } else if (res.status === 429) {
+          // Rate limited — wait longer and retry
+          console.log(`  Rate limited on ${hashName}, waiting 10s...`);
+          await new Promise(r => setTimeout(r, 10000));
+          continue;
+        }
+      } catch {}
+      if (attempt === 0) await new Promise(r => setTimeout(r, 3000)); // retry delay
+    }
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  console.log(`  Priceoverview: ${fetched}/${needed.size} items priced`);
+
+  // Fallback: use search/render for any items that priceoverview missed
+  const missing = [...needed].filter(n => !result[n]);
+  if (missing.length > 0) {
+    console.log(`  Fetching ${missing.length} remaining items via search/render...`);
+  }
+
+  // Build search terms — group missing items by shared search queries
+  const missingItems = marketable.filter(i => !result[i.market_hash_name]);
   const searchTerms = new Set<string>();
-  for (const item of marketable) {
+  for (const item of missingItems) {
     const name = item.market_hash_name;
-    // For items with | separator (stickers/skins), extract the base name for broader matches
     if (name.includes('|')) {
-      // "Sticker | fer | Krakow 2017" → search "Krakow 2017" (matches all Krakow stickers)
       const parts = name.split('|');
       const lastPart = parts[parts.length - 1]?.trim();
       if (lastPart) searchTerms.add(lastPart);
@@ -212,7 +248,11 @@ async function fetchPrices(items: InventoryItem[]): Promise<Record<string, { pri
     }
   }
 
-  console.log(`Fetching prices for ${needed.size} items via ${searchTerms.size} search queries...`);
+  if (searchTerms.size === 0) {
+    console.log(`  Total prices resolved: ${Object.keys(result).length}/${needed.size}`);
+    return result;
+  }
+  console.log(`  Fetching ${missingItems.length} remaining items via ${searchTerms.size} search queries...`);
 
   let searchIdx = 0;
   for (const term of searchTerms) {
@@ -278,10 +318,10 @@ async function fetchPrices(items: InventoryItem[]): Promise<Record<string, { pri
   }
 
   // Any remaining items — try exact-name search
-  const missing = marketable.filter(i => !result[i.market_hash_name]);
-  if (missing.length > 0) {
-    console.log(`  Searching ${missing.length} remaining items by exact name...`);
-    for (const item of missing) {
+  const stillMissing = marketable.filter(i => !result[i.market_hash_name]);
+  if (stillMissing.length > 0) {
+    console.log(`  Searching ${stillMissing.length} remaining items by exact name...`);
+    for (const item of stillMissing) {
       const url = `https://steamcommunity.com/market/search/render/?query=${encodeURIComponent(item.market_hash_name)}&appid=730&start=0&count=10&norender=1&currency=${config.currencyCode}`;
       try {
         const res = await fetch(url);
@@ -295,30 +335,6 @@ async function fetchPrices(items: InventoryItem[]): Promise<Record<string, { pri
         }
       } catch {}
       await new Promise(r => setTimeout(r, 3000));
-    }
-  }
-
-  // Correction pass: search/render sell_price is often stale/wrong.
-  // Use priceoverview API to verify all priced items.
-  const toVerify = [...needed].filter(n => result[n] && result[n].price > 0);
-  if (toVerify.length > 0) {
-    console.log(`  Verifying ${toVerify.length} items via priceoverview...`);
-    for (const hashName of toVerify) {
-      try {
-        const url = `https://steamcommunity.com/market/priceoverview/?appid=730&currency=${config.currencyCode}&market_hash_name=${encodeURIComponent(hashName)}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json() as any;
-          if (data.success && data.lowest_price) {
-            const accurate = parseFloat(data.lowest_price.replace(/[^0-9.]/g, '')) || 0;
-            if (accurate > 0 && Math.abs(accurate - result[hashName].price) / result[hashName].price > 0.1) {
-              console.log(`  Corrected ${hashName}: A$${result[hashName].price.toFixed(2)} → A$${accurate.toFixed(2)}`);
-              result[hashName].price = accurate;
-            }
-          }
-        }
-        await new Promise(r => setTimeout(r, 2000));
-      } catch {}
     }
   }
 
@@ -857,6 +873,8 @@ async function main() {
   /* Full table */
   table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
   thead { position: sticky; top: 48px; z-index: 50; }
+  h3[id] { scroll-margin-top: 60px; }
+  table { scroll-margin-top: 60px; }
   th { background: #1a3a52; box-shadow: 0 1px 0 #0e1a26; color: #8f98a0; padding: 8px 8px; text-align: left; border-bottom: 1px solid #0e1a26; cursor: pointer; user-select: none; white-space: nowrap; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; transition: color 0.2s; }
   th:hover { color: #66c0f4; }
   td { padding: 7px 8px; border-bottom: 1px solid rgba(0,0,0,0.15); font-variant-numeric: tabular-nums; }
