@@ -2030,7 +2030,7 @@ async function main() {
     const nearby = projections.filter(p => Math.abs(p.monthsOld - m) <= 12);
     if (nearby.length > 0) {
       let tw = 0, wr = 0;
-      for (const p of nearby) { const w = (1 / (1 + Math.abs(p.monthsOld - m))) * (recentMajors.has(p.name) ? RECENCY_BOOST : 1) * (p.name === 'Katowice 2014' ? KATOWICE_2014_WEIGHT : 1); wr += p.roi * w; tw += w; }
+      for (const p of nearby) { const w = (1 / (1 + Math.abs(p.monthsOld - m))) * (majorWeightMap[p.name] || 0.10); wr += p.roi * w; tw += w; }
       if (wr / tw >= 0) { breakEvenMonths = m; break; }
     }
   }
