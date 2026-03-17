@@ -2699,7 +2699,7 @@ async function main() {
 <title>${config.siteTitle}</title>
 <link rel="icon" type="image/webp" href="https://cdn.csgoskins.gg/public/uih/tournaments/aHR0cHM6Ly9jc2dvc2tpbnMuZ2cvYnVpbGQvYXNzZXRzLzIwMjUtc3RhcmxhZGRlci1idWRhcGVzdC1ESnM3aFlfdi5wbmc-/auto/auto/85/notrim/eec62b9fb416cc1a7052736b519b8499.webp">
 <meta property="og:title" content="${config.siteTitle}">
-<meta property="og:description" content="Live tracking of CS2 ${config.event} Major sticker investments - updated 6x daily">
+<meta property="og:description" content="Live tracking of CS2 ${config.event} Major sticker investments - updated every 15 minutes">
 <meta property="og:image" content="https://cdn.csgoskins.gg/public/uih/tournaments/aHR0cHM6Ly9jc2dvc2tpbnMuZ2cvYnVpbGQvYXNzZXRzLzIwMjUtc3RhcmxhZGRlci1idWRhcGVzdC1ESnM3aFlfdi5wbmc-/auto/auto/85/notrim/eec62b9fb416cc1a7052736b519b8499.webp">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -3099,7 +3099,7 @@ async function main() {
 <div class="overview-grid">
   <div class="overview-card card-blue">
     <h4>What is this?</h4>
-    <p>This tracks <strong>${grandQty.toLocaleString()} CS2 ${config.event} Major stickers</strong> purchased at ${config.currency}${config.currencySymbol}${config.costPerUnit} each from capsule openings. Total investment: <strong>${config.currency}${config.currencySymbol}${grandCost.toFixed(2)}</strong>. The tracker fetches live prices from the Steam Market 6 times daily and monitors performance over time.</p>
+    <p>This tracks <strong>${grandQty.toLocaleString()} CS2 ${config.event} Major stickers</strong> purchased at ${config.currency}${config.currencySymbol}${config.costPerUnit} each from capsule openings. Total investment: <strong>${config.currency}${config.currencySymbol}${grandCost.toFixed(2)}</strong>. The tracker fetches live prices from the Steam Market every 15 minutes and monitors performance over time.</p>
   </div>
   <div class="overview-card ${grandPL >= 0 ? 'card-green' : 'card-red'}">
     <h4>Current Status</h4>
@@ -3922,7 +3922,7 @@ ${timeProjections.map(t => {
 </tbody>
 </table>
 </div>
-<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Projections based on ${projections.length} previous CS majors (Katowice 2014 - Austin 2025). Weighted by relevance: Katowice 2014 at 0.3%, Katowice 2015 at 2%, Atlanta 2017 at 4%, pre-2019 at 5-10%, 2018-2019 at 15-20%, CS2-era at 60-100%. Updated 6x daily. Past performance does not guarantee future results.</p>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Projections based on ${projections.length} previous CS majors (Katowice 2014 - Austin 2025). Weighted by relevance: Katowice 2014 at 0.3%, Katowice 2015 at 2%, Atlanta 2017 at 4%, pre-2019 at 5-10%, 2018-2019 at 15-20%, CS2-era at 60-100%. Updated every 15 minutes. Past performance does not guarantee future results.</p>
 
 <h3>Sell Timing Recommendation</h3>
 <div class="sell-card">
@@ -4100,7 +4100,7 @@ ${capsuleHistory.map(c => {
 <h3 id="quick-stats-section">Quick Stats</h3>
 <div class="summary" style="margin-bottom:16px;">
   <div class="card"><div class="card-label">Price Updates</div><div class="card-value neutral">${history.entries.length}</div><div class="card-sub">snapshots recorded</div></div>
-  <div class="card"><div class="card-label">Updates Per Day</div><div class="card-value dimmed">6x</div><div class="card-sub">every 4 hours</div></div>
+  <div class="card"><div class="card-label">Update Frequency</div><div class="card-value dimmed">~96x</div><div class="card-sub">every 15 minutes</div></div>
   <div class="card"><div class="card-label">Avg Sticker Price</div><div class="card-value ${avgStickerValue >= config.costPerUnit ? 'positive' : 'negative'}">${config.currencySymbol}${avgStickerValue.toFixed(3)}</div><div class="card-sub">need ${config.currencySymbol}${config.costPerUnit} to break even</div></div>
   <div class="card"><div class="card-label">Gold Value</div><div class="card-value positive">$${(qualityTotals['Gold']?.value || 0).toFixed(2)}</div><div class="card-sub">${((qualityTotals['Gold']?.value || 0) / grandValue * 100).toFixed(1)}% of portfolio</div></div>
   <div class="card"><div class="card-label">Holo Value</div><div class="card-value positive">$${(qualityTotals['Holo']?.value || 0).toFixed(2)}</div><div class="card-sub">${((qualityTotals['Holo']?.value || 0) / grandValue * 100).toFixed(1)}% of portfolio</div></div>
@@ -4263,7 +4263,7 @@ ${data.map((r, idx) => {
 <button class="scroll-top" id="scrollTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button>
 
 <div class="footer">
-  <p>Sticker Investment Tracker by <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank">${config.steamProfile.displayName}</a> &middot; Prices updated 6x daily via GitHub Actions</p>
+  <p>Sticker Investment Tracker by <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank">${config.steamProfile.displayName}</a> &middot; Prices updated every 15 minutes via GitHub Actions</p>
   <p><a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}/inventory/" target="_blank">Steam Inventory</a> &middot; <a href="https://steamcommunity.com/id/${config.steamProfile.vanityUrl}" target="_blank">Steam Profile</a></p>
 </div>
 </div><!-- end .page-content -->
