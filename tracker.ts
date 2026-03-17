@@ -2143,6 +2143,18 @@ async function main() {
     bestMajor: boolean;
   }
 
+  // Compute weight map BEFORE projections so bestModernMajor can use it
+  const majorWeightMap: Record<string, number> = {};
+  const BUDAPEST_SALE_DAYS = config.saleDays || 53;
+  for (const m of historicalMajors) {
+    let w = m.weight;
+    const saleDiff = Math.abs(m.saleDays - BUDAPEST_SALE_DAYS);
+    if (saleDiff <= 10) w *= 1.5;
+    else if (saleDiff <= 25) w *= 1.2;
+    else if (saleDiff > 60) w *= 0.8;
+    majorWeightMap[m.name] = w;
+  }
+
   let bestROI = -Infinity;
   let bestModernROI = -Infinity; // Exclude pre-2018 outliers for chart display
   const projections: MajorProjection[] = historicalMajors.map(m => {
@@ -2182,20 +2194,7 @@ async function main() {
   // Timeline projections for Budapest 2025
   // Use historical data points (months vs weighted ROI) to project future values
   // Bias towards last 4 majors (most relevant for modern CS2 economy)
-  // Use per-major weight field from historicalMajors for prediction weighting
-  const majorWeightMap: Record<string, number> = {};
-  const BUDAPEST_SALE_DAYS = config.saleDays || 53;
-  for (const m of historicalMajors) {
-    // Base weight from the major's config
-    let w = m.weight;
-    // Boost weight for majors with similar sale durations to Budapest (53d)
-    // Austin (49d) and Stockholm (50d) are most similar → get the biggest boost
-    const saleDiff = Math.abs(m.saleDays - BUDAPEST_SALE_DAYS);
-    if (saleDiff <= 10) w *= 1.5;       // Very similar (Austin 49d, Stockholm 50d)
-    else if (saleDiff <= 25) w *= 1.2;   // Somewhat similar (Antwerp 67d, Rio 70d)
-    else if (saleDiff > 60) w *= 0.8;    // Very different sale length (Paris 97d, Copenhagen 116d)
-    majorWeightMap[m.name] = w;
-  }
+  // majorWeightMap already computed above (before projections)
   // 2-week intervals for first year, monthly for year 2, then quarterly/yearly out to 12 years
   const timePoints = [
     0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12,
