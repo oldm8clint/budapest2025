@@ -2203,21 +2203,24 @@ async function main() {
   // then blend with nearest-neighbor interpolation for robustness.
   // majorWeightMap already computed above (before projections)
 
-  // Step 1: Fit weighted logarithmic curve to all historical major data points
+  // Step 1: Fit weighted logarithmic curve to modern major data points
+  // Only use majors with weight >= 0.10 to avoid extreme outliers (Katowice 2014 = 50,000%+ ROI)
   // Transform: x = ln(monthsOld + 1), y = ROI, w = majorWeight
-  const curvePoints = projections.filter(p => p.monthsOld > 0 && (majorWeightMap[p.name] || 0) >= 0.01);
+  const curvePoints = projections.filter(p => p.monthsOld > 0 && (majorWeightMap[p.name] || 0) >= 0.10);
   let sumW = 0, sumWX = 0, sumWY = 0, sumWXX = 0, sumWXY = 0;
   for (const p of curvePoints) {
     const x = Math.log(p.monthsOld + 1);
     const y = p.roi;
-    const w = majorWeightMap[p.name] || 0.01;
+    const w = majorWeightMap[p.name] || 0.10;
     sumW += w; sumWX += w * x; sumWY += w * y;
     sumWXX += w * x * x; sumWXY += w * x * y;
   }
   // Weighted least squares: y = curveA * x + curveB
   const curveA = sumW > 0 ? (sumWXY - sumWX * sumWY / sumW) / (sumWXX - sumWX * sumWX / sumW) : 0;
   const curveB = sumW > 0 ? (sumWY - curveA * sumWX) / sumW : 0;
-  const logCurveROI = (months: number) => curveA * Math.log(months + 1) + curveB;
+  // Clamp curve output to reasonable range: never below -100% (total loss) or above 10x the max observed modern ROI
+  const maxModernROI = Math.max(...curvePoints.map(p => p.roi), 100);
+  const logCurveROI = (months: number) => Math.max(-100, Math.min(maxModernROI * 3, curveA * Math.log(months + 1) + curveB));
 
   // 2-week intervals for first year, monthly for year 2, then quarterly/yearly out to 12 years
   // Capped at 144 months (12 years) — oldest major (Katowice 2014) is ~144 months old
