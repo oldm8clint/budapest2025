@@ -4607,7 +4607,7 @@
     },
     {
       "date": "2026-03-17-18",
-      "totalValue": 2039.2199999999996,
+      "totalValue": 2036.5999999999997,
       "totalItems": 50,
       "categoryValues": {
         "Skins": {
@@ -4616,15 +4616,15 @@
         },
         "Sticker Investments": {
           "count": 1,
-          "value": 346.03000000000014
+          "value": 342.7400000000002
         },
         "Cases": {
           "count": 19,
-          "value": 325.09
+          "value": 325.84999999999997
         },
         "Stickers": {
           "count": 1,
-          "value": 1.08
+          "value": 0.99
         },
         "Graffiti": {
           "count": 15,
@@ -4642,9 +4642,9 @@
       "itemPrices": {
         "★ Specialist Gloves | Field Agent (Minimal Wear)": 793.75,
         "M4A4 | X-Ray (Factory New)": 571.93,
-        "__budapest_sticker_lot__": 346.03000000000014,
-        "Operation Breakout Weapon Case": 17.11,
-        "Sticker | Co Co Co": 1.08,
+        "__budapest_sticker_lot__": 342.7400000000002,
+        "Operation Breakout Weapon Case": 17.15,
+        "Sticker | Co Co Co": 0.99,
         "Souvenir AUG | Colony (Field-Tested)": 0.52,
         "SCAR-20 | Carbon Fiber (Factory New)": 0.25,
         "M4A4 | Aeolian Dark (Battle-Scarred)": 0.09,
