@@ -71,12 +71,8 @@ const trackedStickers: TrackedSticker[] = [
   { hashName: "Sticker | FURIA (Holo) | Rio 2022", major: "Rio 2022", quality: "Holo" },
   { hashName: "Sticker | FaZe Clan (Holo) | Rio 2022", major: "Rio 2022", quality: "Holo" },
   { hashName: "Sticker | s1mple (Holo) | Rio 2022", major: "Rio 2022", quality: "Holo" },
-  { hashName: "Sticker | NiKo (Holo) | Rio 2022", major: "Rio 2022", quality: "Holo" },
-  { hashName: "Sticker | m0NESY (Holo) | Rio 2022", major: "Rio 2022", quality: "Holo" },
   // Gold tier
   { hashName: "Sticker | s1mple (Gold) | Rio 2022", major: "Rio 2022", quality: "Gold" },
-  { hashName: "Sticker | NiKo (Gold) | Rio 2022", major: "Rio 2022", quality: "Gold" },
-  { hashName: "Sticker | m0NESY (Gold) | Rio 2022", major: "Rio 2022", quality: "Gold" },
   { hashName: "Sticker | FaZe Clan (Gold) | Rio 2022", major: "Rio 2022", quality: "Gold" },
   { hashName: "Sticker | FURIA (Gold) | Rio 2022", major: "Rio 2022", quality: "Gold" },
 
