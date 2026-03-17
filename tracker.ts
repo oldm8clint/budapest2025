@@ -1351,8 +1351,9 @@ async function main() {
   const currentPrices = todayEntry.prices;
   // Volume data: prefer current entry, fall back to most recent entry that has volumes
   let currentVolumes = todayEntry.volumes || {};
-  if (Object.keys(currentVolumes).length === 0) {
-    const entryWithVolumes = [...history.entries].reverse().find(e => e.volumes && Object.keys(e.volumes).length > 0);
+  const hasNonZeroVolumes = (v: Record<string, number>) => Object.values(v).some(val => val > 0);
+  if (!hasNonZeroVolumes(currentVolumes)) {
+    const entryWithVolumes = [...history.entries].reverse().find(e => e.volumes && hasNonZeroVolumes(e.volumes));
     if (entryWithVolumes?.volumes) {
       currentVolumes = entryWithVolumes.volumes;
       console.log(`Using volume data from ${entryWithVolumes.date} (current entry has none)`);
