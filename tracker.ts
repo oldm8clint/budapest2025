@@ -3857,7 +3857,7 @@ ${projections.map(p => {
   <td></td>
   <td>${config.event}</td>
   <td>Now</td>
-  <td>~120d</td>
+  <td>${config.saleDays || 53}d</td>
   <td><span style="color:#67c1f5;font-weight:600;font-size:11px">You</span></td>
   <td colspan="3" style="color:#888;">Your current portfolio</td>
   <td>$${avgStickerValue.toFixed(3)}</td>
