@@ -2774,6 +2774,7 @@ async function main() {
   /* Main table — Steam market style */
   table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
   thead { position: sticky; top: 48px; z-index: 50; }
+  .scroll-table thead { top: 0; }
   h3[id] { scroll-margin-top: 60px; }
   table { scroll-margin-top: 60px; }
   th { background: #1a3a52; color: #8f98a0; padding: 8px 8px; text-align: left; border-bottom: 1px solid #0e1a26; cursor: pointer; user-select: none; white-space: nowrap; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; transition: color 0.2s; box-shadow: 0 1px 0 #0e1a26; }
@@ -3363,7 +3364,7 @@ ${history.entries.length >= 2 ? `
 <div class="split-tables">
   <div class="sub-table">
     <h4 style="color:#22c55e">Top ${topTrends.length} Consistent Risers</h4>
-    <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <div class="scroll-table" style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Appearances</th><th>First Price</th><th>Latest Price</th><th>Change</th><th>Trend</th></tr></thead>
     <tbody>
@@ -3379,7 +3380,7 @@ ${history.entries.length >= 2 ? `
   </div>
   <div class="sub-table">
     <h4 style="color:#ef4444">Bottom ${bottomTrends.length} Watch List</h4>
-    <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <div class="scroll-table" style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Appearances</th><th>First Price</th><th>Latest Price</th><th>Change</th><th>Trend</th></tr></thead>
     <tbody>
@@ -3427,7 +3428,7 @@ ${(() => {
 <div class="split-tables">
   <div class="sub-table">
     <h4 style="color:#22c55e">Most Traded (24h) - Reliable Prices</h4>
-    <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <div class="scroll-table" style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
     <tbody>
@@ -3443,7 +3444,7 @@ ${(() => {
   </div>
   <div class="sub-table">
     <h4 style="color:#f97316">Least Traded (24h) - Fragile Prices</h4>
-    <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <div class="scroll-table" style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
     <tbody>
@@ -3462,7 +3463,7 @@ ${(() => {
 <div class="sub-table" style="margin-bottom:32px;">
   <h4 style="color:#60a5fa">Most Listed - High Supply (${mostListed.length} items)</h4>
   <p style="color:#888;font-size:12px;margin-bottom:8px;">Stickers with the most active sell listings on the Steam Market. High supply can put downward pressure on prices. If no items appear, the Steam API may not be returning listing counts for Budapest stickers yet.</p>
-  <div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+  <div class="scroll-table" style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
   <table>
   <thead><tr><th>Sticker</th><th>Quality</th><th>Listings</th><th>Vol (24h)</th><th>Price</th><th>Strength</th></tr></thead>
   <tbody>
@@ -3489,7 +3490,7 @@ ${skinportTopByVol.length > 0 ? `
 <div class="split-tables">
   <div class="sub-table">
     <h4 style="color:#60a5fa">Most Traded on Skinport (7 days)</h4>
-    <div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <div class="scroll-table" style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>7d Vol</th><th>30d Vol</th><th>Steam Price</th></tr></thead>
     <tbody>
@@ -3504,7 +3505,7 @@ ${skinportTopByVol.length > 0 ? `
   </div>
   <div class="sub-table">
     <h4 style="color:#c084fc">Most Listed on Skinport</h4>
-    <div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <div class="scroll-table" style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Listings</th><th>Steam Price</th></tr></thead>
     <tbody>
@@ -3529,7 +3530,7 @@ ${priceComparisonItems.length > 0 ? `
   <div class="card"><div class="card-label">Avg SP Price (+15%)</div><div class="card-value" style="color:#c084fc">$${avgSkinportAdj.toFixed(3)}</div><div class="card-sub">USD min + 15% markup</div></div>
   <div class="card"><div class="card-label">Cheaper On</div><div class="card-value" style="color:#22c55e">${steamCheaperCount > skinportCheaperCount ? 'Steam (' + steamCheaperCount + ')' : skinportCheaperCount > steamCheaperCount ? 'Skinport (' + skinportCheaperCount + ')' : 'Even'}</div><div class="card-sub">Steam: ${steamCheaperCount} | SP: ${skinportCheaperCount}</div></div>
 </div>
-<div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<div class="scroll-table" style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table>
 <thead><tr><th>Sticker</th><th>Quality</th><th>Steam Price</th><th>SP Price (+15%)</th><th>Difference</th><th>SP 7d Vol</th><th>Steam Vol</th></tr></thead>
 <tbody>
@@ -3564,7 +3565,7 @@ ${saItemsWithData.length > 0 ? `
 ${saManipulated.length > 0 ? `
 <h4 style="color:#ef4444;margin-top:20px;margin-bottom:12px;">Price Manipulation Alerts</h4>
 <p style="color:#888;font-size:12px;margin-bottom:8px;">Items flagged by SteamAnalyst for ongoing price manipulation or suspicious pricing activity. Exercise caution when buying or valuing these items — prices may not reflect genuine market demand.</p>
-<div style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<div class="scroll-table" style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table>
 <thead><tr><th>Sticker</th><th>Quality</th><th>Steam Price</th><th>SA 7d Avg</th><th>SA Safe Price</th><th>Flag</th></tr></thead>
 <tbody>
@@ -3586,7 +3587,7 @@ ${saManipulated.map(r => {
 <div class="split-tables">
   <div class="sub-table">
     <h4 style="color:#60a5fa">Most Traded (SA 7-Day Volume)</h4>
-    <div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <div class="scroll-table" style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>7d Vol</th><th>24h Vol</th><th>Avg/Day</th><th>SA 7d Avg</th></tr></thead>
     <tbody>
@@ -3601,7 +3602,7 @@ ${saManipulated.map(r => {
   </div>
   <div class="sub-table">
     <h4 style="color:#22c55e">Year-over-Year Gainers</h4>
-    <div style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+    <div class="scroll-table" style="max-height:400px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
     <table>
     <thead><tr><th>Sticker</th><th>Quality</th><th>Now (7d Avg)</th><th>1yr Ago</th><th>YoY Change</th></tr></thead>
     <tbody>
@@ -3619,7 +3620,7 @@ ${saManipulated.map(r => {
 ${saTopYoYLosers.length > 0 ? `
 <div style="margin-top:16px;">
   <h4 style="color:#ef4444">Year-over-Year Losers</h4>
-  <div style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+  <div class="scroll-table" style="max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
   <table>
   <thead><tr><th>Sticker</th><th>Quality</th><th>Now (7d Avg)</th><th>1yr Ago</th><th>YoY Change</th></tr></thead>
   <tbody>
@@ -3662,7 +3663,7 @@ ${csgoSkinsData ? '<br><span style="color:' + (csgoSkinsAge <= 7 ? '#22c55e' : c
 
 <details open>
 <summary style="cursor:pointer;color:#67c1f5;font-weight:600;padding:8px 0;user-select:none;">Per-Sticker Source Comparison &mdash; sorted by divergence</summary>
-<div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<div class="scroll-table" style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table>
 <thead><tr>
   <th>Sticker</th><th>Quality</th>
@@ -3731,7 +3732,7 @@ ${histDivergence.length > 1 ? `
 </div>
 <details open>
 <summary style="cursor:pointer;color:#67c1f5;font-weight:600;padding:8px 0;user-select:none;">Snapshot Details (${history.entries.length} entries) — click to collapse</summary>
-<div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<div class="scroll-table" style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table class="history-table" style="max-width: 1000px;">
 <thead><tr><th>Date</th><th>Actual Value</th><th title="Predicted value based on weighted historical major performance at this age">Predicted</th><th>Pred Accuracy</th><th>P/L vs Cost</th><th>ROI</th><th>Day Change</th><th>Avg Sticker</th></tr></thead>
 <tbody>
@@ -3897,7 +3898,7 @@ ${projections.map(p => {
 
 <h4 style="color:#fff;font-size:14px;margin:20px 0 12px;">Full Prediction Timeline (${timeProjections.length} intervals)</h4>
 <p style="color:#888;font-size:12px;margin-bottom:8px;">All prediction intervals from 2 weeks to 12 years. Green rows have actual price data to compare against projections. Scroll to explore all ${timeProjections.length} time points.</p>
-<div style="max-height:600px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<div class="scroll-table" style="max-height:600px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table class="history-table" style="max-width: 900px;">
 <thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Per Sticker</th><th>Actual Value</th><th>Actual ROI</th><th>Accuracy</th></tr></thead>
 <tbody>
@@ -3933,7 +3934,7 @@ ${timeProjections.map(t => {
 </div>
 
 <p style="color:#888;font-size:12px;margin-bottom:8px;">Weekly breakdown for the first 3 months, then monthly/quarterly intervals. Scroll to see all ${sellWindows.length} sell windows. Signal is based on weighted ROI from ${realisticProjections.length} comparable majors.</p>
-<div style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
+<div class="scroll-table" style="max-height:500px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table class="history-table" style="max-width: 900px;">
 <thead><tr><th>Sell Window</th><th>Target Date</th><th>Avg ROI at Age</th><th>Portfolio Estimate</th><th>Per Sticker</th><th>Reference Majors</th><th>Signal</th></tr></thead>
 <tbody>
