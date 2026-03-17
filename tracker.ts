@@ -1782,6 +1782,8 @@ async function main() {
     qualityBreakdown: { quality: string; value: number; count: number; avgPrice: number }[];
     priceDistribution: { label: string; count: number }[];
     topMovers: { name: string; quality: string; change: number }[];
+    topMoversMonth: { name: string; quality: string; change: number }[];
+    topMoversAllTime: { name: string; quality: string; change: number }[];
   }
 
   const weeklyPriceBins = [
@@ -1831,25 +1833,51 @@ async function main() {
         count: Object.values(prices).filter(p => (p as number) > 0 && (p as number) >= b.min && (p as number) < b.max).length,
       })).filter(b => b.count > 0);
 
-      // Top movers (vs previous week if available)
-      const prevWeekEntries = Object.entries(weekGroups)
-        .filter(([k]) => k < wk)
-        .sort(([a], [b]) => b.localeCompare(a));
-      const topMovers: { name: string; quality: string; change: number }[] = [];
-      if (prevWeekEntries.length > 0) {
-        const prevEntry = prevWeekEntries[0][1][prevWeekEntries[0][1].length - 1];
-        const prevPrices = prevEntry.prices || {};
+      // Helper: compute movers comparing current prices to a reference entry
+      function computeMoversVs(currentPrices: Record<string, unknown>, refPrices: Record<string, unknown>): { name: string; quality: string; change: number }[] {
         const changes: { name: string; quality: string; change: number }[] = [];
-        for (const [key, price] of Object.entries(prices)) {
-          const prevPrice = prevPrices[key] as number || 0;
-          if (prevPrice > 0 && (price as number) > 0) {
+        for (const [key, price] of Object.entries(currentPrices)) {
+          const prevPrice = refPrices[key] as number || 0;
+          if (prevPrice > 0.001 && (price as number) > 0.001) {
             const parts = key.split('|||');
             changes.push({ name: parts[0], quality: parts[1] || 'Normal', change: ((price as number) - prevPrice) / prevPrice * 100 });
           }
         }
         changes.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
-        topMovers.push(...changes.slice(0, 5));
+        return changes.slice(0, 5);
       }
+
+      // Top movers (vs previous week if available)
+      const prevWeekEntries = Object.entries(weekGroups)
+        .filter(([k]) => k < wk)
+        .sort(([a], [b]) => b.localeCompare(a));
+      const topMovers = prevWeekEntries.length > 0
+        ? computeMoversVs(prices, prevWeekEntries[0][1][prevWeekEntries[0][1].length - 1].prices || {})
+        : [];
+
+      // Top movers (vs ~30 days ago)
+      const entryNorm = entry.date.replace(/^(\d{4}-\d{2}-\d{2})-\d{2}$/, '$1');
+      const entryDateMs = new Date(entryNorm).getTime();
+      const targetMs30 = entryDateMs - 30 * 86400000;
+      let closest30: typeof history.entries[0] | null = null;
+      let closest30Dist = Infinity;
+      for (const e of history.entries) {
+        const eNorm = e.date.replace(/^(\d{4}-\d{2}-\d{2})-\d{2}$/, '$1');
+        const eMs = new Date(eNorm).getTime();
+        if (eMs <= entryDateMs) {
+          const dist = Math.abs(eMs - targetMs30);
+          if (dist < closest30Dist) { closest30Dist = dist; closest30 = e; }
+        }
+      }
+      const topMoversMonth = closest30 && closest30Dist < 45 * 86400000
+        ? computeMoversVs(prices, closest30.prices || {})
+        : [];
+
+      // Top movers (vs first entry — all time)
+      const firstEntry = history.entries[0];
+      const topMoversAllTime = firstEntry && firstEntry !== entry
+        ? computeMoversVs(prices, firstEntry.prices || {})
+        : [];
 
       return {
         weekKey: wk,
@@ -1860,6 +1888,8 @@ async function main() {
         qualityBreakdown,
         priceDistribution,
         topMovers,
+        topMoversMonth,
+        topMoversAllTime,
       };
     });
 
@@ -5129,14 +5159,31 @@ function selectWeek(idx) {
     });
   }
 
-  // Top movers
+  // Top movers — Week, Month, All Time
   const moversEl = document.getElementById('weekMovers');
-  if (moversEl && w.topMovers && w.topMovers.length > 0) {
-    moversEl.innerHTML = '<div class="sub-table"><h4 style="color:#67c1f5">Top Movers This Week</h4><table><thead><tr><th>Sticker</th><th>Quality</th><th>Change</th></tr></thead><tbody>' +
-      w.topMovers.map(m => '<tr><td style="font-weight:500">' + m.name + '</td><td>' + m.quality + '</td><td class="' + (m.change >= 0 ? 'positive' : 'negative') + '" style="font-weight:700">' + (m.change >= 0 ? '+' : '') + m.change.toFixed(1) + '%</td></tr>').join('') +
-      '</tbody></table></div>';
-  } else if (moversEl) {
-    moversEl.innerHTML = '';
+  if (moversEl) {
+    const periods = [
+      { label: 'This Week', color: '#67c1f5', data: w.topMovers || [] },
+      { label: 'Monthly (30d)', color: '#c084fc', data: w.topMoversMonth || [] },
+      { label: 'All Time', color: '#ffd700', data: w.topMoversAllTime || [] },
+    ].filter(p => p.data.length > 0);
+    if (periods.length > 0) {
+      moversEl.innerHTML = '<h4 style="color:#67c1f5;margin-bottom:12px;">Top Movers</h4>' +
+        '<div style="display:grid;grid-template-columns:repeat(' + periods.length + ',1fr);gap:16px;">' +
+        periods.map(p => {
+          const gainers = p.data.filter(m => m.change >= 0).sort((a, b) => b.change - a.change).slice(0, 3);
+          const decliners = p.data.filter(m => m.change < 0).sort((a, b) => a.change - b.change).slice(0, 3);
+          const renderRows = (items, isGainer) => items.map(m => '<tr><td style="font-weight:500;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + m.name + '</td><td style="font-size:10px;color:#888">' + m.quality + '</td><td class="' + (isGainer ? 'positive' : 'negative') + '" style="font-weight:700;text-align:right">' + (isGainer ? '+' : '') + m.change.toFixed(1) + '%</td></tr>').join('');
+          return '<div style="background:rgba(255,255,255,0.02);border-radius:8px;padding:12px">' +
+            '<div style="color:' + p.color + ';font-size:13px;font-weight:600;margin-bottom:8px">' + p.label + '</div>' +
+            (gainers.length > 0 ? '<div style="font-size:10px;color:#888;margin-bottom:4px">Gainers</div><table style="font-size:11px;width:100%"><tbody>' + renderRows(gainers, true) + '</tbody></table>' : '') +
+            (decliners.length > 0 ? '<div style="font-size:10px;color:#888;margin:8px 0 4px">Decliners</div><table style="font-size:11px;width:100%"><tbody>' + renderRows(decliners, false) + '</tbody></table>' : '') +
+            '</div>';
+        }).join('') +
+        '</div>';
+    } else {
+      moversEl.innerHTML = '';
+    }
   }
 }
 if (WEEKLY_DATA.length > 0) selectWeek(0);
