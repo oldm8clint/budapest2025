@@ -2171,6 +2171,7 @@ async function main() {
   interface MajorProjection {
     name: string;
     monthsOld: number;
+    monthsPostSale: number; // months since sale ended — used for predictions
     weightedAvgPrice: number;
     portfolioValue: number;
     roi: number;
@@ -2214,6 +2215,7 @@ async function main() {
     return {
       name: m.name,
       monthsOld: m.monthsOld,
+      monthsPostSale: Math.max(0, m.monthsOld - m.saleDays / 30.44),
       weightedAvgPrice: weightedAvg,
       portfolioValue: portfolioVal,
       roi,
@@ -2228,18 +2230,21 @@ async function main() {
 
   // Timeline projections for Budapest 2025
   // ── Prediction Model: Logarithmic Growth Curve + Nearest-Neighbor Blend ──
-  // Research shows sticker prices follow logarithmic growth post-sale: ROI(t) = a * ln(t+1) + b
-  // We fit this curve using weighted least squares (recent majors weighted highest),
-  // then blend with nearest-neighbor interpolation for robustness.
+  // All predictions are anchored to SALE END DATE (not event release date).
+  // Stickers don't appreciate until the sale ends and supply becomes fixed.
+  // Historical major ages are also converted to months-post-sale for consistency.
   // majorWeightMap already computed above (before projections)
+
+  const SALE_END = new Date(config.saleEndDate || '2026-03-15');
+  const postSaleAgeMonths = Math.max(0, (refDate.getTime() - SALE_END.getTime()) / (30.44 * 86400000));
 
   // Step 1: Fit weighted logarithmic curve to modern major data points
   // Only use majors with weight >= 0.10 to avoid extreme outliers (Katowice 2014 = 50,000%+ ROI)
-  // Transform: x = ln(monthsOld + 1), y = ROI, w = majorWeight
-  const curvePoints = projections.filter(p => p.monthsOld > 0 && (majorWeightMap[p.name] || 0) >= 0.10);
+  // Transform: x = ln(monthsPostSale + 1), y = ROI, w = majorWeight
+  const curvePoints = projections.filter(p => p.monthsPostSale > 0 && (majorWeightMap[p.name] || 0) >= 0.10);
   let sumW = 0, sumWX = 0, sumWY = 0, sumWXX = 0, sumWXY = 0;
   for (const p of curvePoints) {
-    const x = Math.log(p.monthsOld + 1);
+    const x = Math.log(p.monthsPostSale + 1);
     const y = p.roi;
     const w = majorWeightMap[p.name] || 0.10;
     sumW += w; sumWX += w * x; sumWY += w * y;
@@ -2261,11 +2266,11 @@ async function main() {
   ];
   interface TimeProjection { months: number; label: string; avgROI: number; projectedValue: number; projectedPerSticker: number; actualValue?: number; actualROI?: number; method?: string; }
   const timeProjections: TimeProjection[] = timePoints.map(targetMonths => {
-    // Step 2: Nearest-neighbor interpolation (existing approach)
+    // Step 2: Nearest-neighbor interpolation using months-post-sale
     const searchRadius = targetMonths < 6 ? Math.max(3, targetMonths * 2) : Math.max(12, targetMonths * 0.5);
     const nearby = projections.filter(p => {
-      const dist = Math.abs(p.monthsOld - targetMonths);
-      if (targetMonths < 6 && p.monthsOld > 24) return false;
+      const dist = Math.abs(p.monthsPostSale - targetMonths);
+      if (targetMonths < 6 && p.monthsPostSale > 24) return false;
       if (targetMonths < 12 && (majorWeightMap[p.name] || 0.10) < 0.10) return false;
       return dist <= searchRadius;
     });
@@ -2273,7 +2278,7 @@ async function main() {
     if (nearby.length > 0) {
       let totalWeight = 0, weightedROI = 0;
       for (const p of nearby) {
-        const distW = 1 / (1 + Math.abs(p.monthsOld - targetMonths));
+        const distW = 1 / (1 + Math.abs(p.monthsPostSale - targetMonths));
         const w = distW * (majorWeightMap[p.name] || 0.10);
         weightedROI += p.roi * w;
         totalWeight += w;
@@ -2281,7 +2286,7 @@ async function main() {
       nnROI = weightedROI / totalWeight;
     } else {
       const modern = projections.filter(p => (majorWeightMap[p.name] || 0.10) >= 0.10);
-      const sorted = [...(modern.length > 0 ? modern : projections)].sort((a, b) => Math.abs(a.monthsOld - targetMonths) - Math.abs(b.monthsOld - targetMonths));
+      const sorted = [...(modern.length > 0 ? modern : projections)].sort((a, b) => Math.abs(a.monthsPostSale - targetMonths) - Math.abs(b.monthsPostSale - targetMonths));
       nnROI = sorted[0].roi;
     }
 
@@ -2309,11 +2314,11 @@ async function main() {
     };
   });
 
-  // Match actual data from price history snapshots
+  // Match actual data from price history snapshots (anchored to sale end date)
   const BUDAPEST_EVENT = new Date(config.eventReleaseDate);
-  const currentAgeMonths = (refDate.getTime() - BUDAPEST_EVENT.getTime()) / (30.44 * 86400000);
+  const currentAgeMonths = postSaleAgeMonths; // months since sale ended
   for (const tp of timeProjections) {
-    const targetDate = new Date(BUDAPEST_EVENT.getTime() + tp.months * 30.44 * 86400000);
+    const targetDate = new Date(SALE_END.getTime() + tp.months * 30.44 * 86400000);
     if (targetDate <= refDate && history.entries.length > 0) {
       // Find closest snapshot to this target date
       let closest: HistoryEntry | null = null;
@@ -2372,13 +2377,13 @@ async function main() {
     }
   }
 
-  // Find estimated break-even month
+  // Find estimated break-even month (post-sale)
   let breakEvenMonths = 0;
   for (let m = 1; m <= 120; m++) {
-    const nearby = projections.filter(p => Math.abs(p.monthsOld - m) <= 12);
+    const nearby = projections.filter(p => Math.abs(p.monthsPostSale - m) <= 12);
     if (nearby.length > 0) {
       let tw = 0, wr = 0;
-      for (const p of nearby) { const w = (1 / (1 + Math.abs(p.monthsOld - m))) * (majorWeightMap[p.name] || 0.10); wr += p.roi * w; tw += w; }
+      for (const p of nearby) { const w = (1 / (1 + Math.abs(p.monthsPostSale - m))) * (majorWeightMap[p.name] || 0.10); wr += p.roi * w; tw += w; }
       if (wr / tw >= 0) { breakEvenMonths = m; break; }
     }
   }
@@ -2394,8 +2399,8 @@ async function main() {
   // Factor 1: Cycle position (based on post-sale age, not event age)
   const cycleScore = saleActive ? 9 : monthsSinceSaleEnd <= 3 ? 9 : monthsSinceSaleEnd <= 12 ? 8 : monthsSinceSaleEnd <= 24 ? 6 : monthsSinceSaleEnd <= 48 ? 5 : 3;
   const cycleLabel = saleActive ? 'Sale Active — Max Accumulation' : monthsSinceSaleEnd <= 1 ? 'Just Off Sale — Launch Phase' : monthsSinceSaleEnd <= 6 ? 'Early Post-Sale Growth' : monthsSinceSaleEnd <= 18 ? 'Growth Phase' : monthsSinceSaleEnd <= 48 ? 'Appreciation' : 'Mature';
-  // Factor 2: Performance vs history at same age
-  const nearbyForScore = projections.filter(p => (majorWeightMap[p.name] || 0) >= 0.10 && Math.abs(p.monthsOld - budapestMonths) <= 12);
+  // Factor 2: Performance vs history at same post-sale age
+  const nearbyForScore = projections.filter(p => (majorWeightMap[p.name] || 0) >= 0.10 && Math.abs(p.monthsPostSale - postSaleAgeMonths) <= 12);
   const avgHistROI = nearbyForScore.length > 0 ? nearbyForScore.reduce((a, p) => a + p.roi, 0) / nearbyForScore.length : 0;
   const currentROI = parseFloat(grandROI);
   const perfScore = currentROI > avgHistROI ? 8 : currentROI > avgHistROI * 0.5 ? 6 : currentROI > 0 ? 4 : 2;
@@ -2499,8 +2504,8 @@ async function main() {
   const currentROIpct = ((grandValue - grandCost) / grandCost) * 100;
   for (const sw of sellWindows) {
     if (sw.months <= currentAgeMonths) {
-      // Past/current sell windows: use actual snapshot data
-      const targetDate = new Date(BUDAPEST_EVENT.getTime() + sw.months * 30.44 * 86400000);
+      // Past/current sell windows: use actual snapshot data (anchored to sale end)
+      const targetDate = new Date(SALE_END.getTime() + sw.months * 30.44 * 86400000);
       let closestEntry: typeof history.entries[0] | null = null;
       let closestDist = Infinity;
       for (const entry of history.entries) {
@@ -2518,18 +2523,18 @@ async function main() {
         sw.majorsInRange = ['Actual (current)'];
       }
     } else {
-      // Future sell windows: interpolate from historical major data
+      // Future sell windows: interpolate from historical major data (using post-sale ages)
       const searchRadius = sw.months < 3 ? Math.max(2, sw.months * 2) : Math.max(6, sw.months * 0.5);
       const nearby = realisticProjections.filter(p => {
-        const dist = Math.abs(p.monthsOld - sw.months);
-        if (sw.months < 6 && p.monthsOld > 24) return false;
+        const dist = Math.abs(p.monthsPostSale - sw.months);
+        if (sw.months < 6 && p.monthsPostSale > 24) return false;
         if (sw.months < 12 && (majorWeightMap[p.name] || 0.10) < 0.10) return false;
         return dist <= searchRadius;
       });
       if (nearby.length > 0) {
         let tw = 0, wr = 0;
         for (const p of nearby) {
-          const w = (1 / (1 + Math.abs(p.monthsOld - sw.months))) * (majorWeightMap[p.name] || 0.10);
+          const w = (1 / (1 + Math.abs(p.monthsPostSale - sw.months))) * (majorWeightMap[p.name] || 0.10);
           wr += p.roi * w;
           tw += w;
         }
@@ -2545,7 +2550,7 @@ async function main() {
   }
   const peakWindow = [...sellWindows].sort((a, b) => b.avgROI - a.avgROI)[0];
   const bestSellMonths = peakWindow.months;
-  const bestSellDate = new Date(new Date("2025-09-15").getTime() + bestSellMonths * 30.44 * 86400000);
+  const bestSellDate = new Date(SALE_END.getTime() + bestSellMonths * 30.44 * 86400000);
   const bestSellStr = `${bestSellDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
 
   // ── Slab Sell Strategy Data ───────────────────────────────────────
@@ -4123,7 +4128,7 @@ ${['Normal', 'Embroidered', 'Holo', 'Gold'].map(q => {
 </div>
 
 <h4 style="color:#fff;font-size:14px;margin:20px 0 12px;">Full Prediction Timeline (${timeProjections.length} intervals)</h4>
-<p style="color:#888;font-size:12px;margin-bottom:8px;">Predictions use a blended model: logarithmic growth curve (ROI = a&middot;ln(t+1) + b) fitted to ${curvePoints.length} historical majors, blended with nearest-neighbor interpolation. Curve weight increases for longer projections. Green rows have actual data. Scroll to explore all ${timeProjections.length} time points.</p>
+<p style="color:#888;font-size:12px;margin-bottom:8px;">Timeline starts from sale end (${config.saleEndDate || 'Mar 15, 2026'}). Predictions use a blended model: logarithmic growth curve fitted to ${curvePoints.length} historical majors (post-sale ages), blended with nearest-neighbor interpolation. Green rows have actual data.</p>
 <div class="scroll-table" style="max-height:600px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table class="history-table" style="max-width: 900px;">
 <thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Per Sticker</th><th>Actual Value</th><th>Actual ROI</th><th>Accuracy</th></tr></thead>
@@ -4148,14 +4153,14 @@ ${timeProjections.map(t => {
 </tbody>
 </table>
 </div>
-<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Blended model: weighted logarithmic curve fit (a=${curveA.toFixed(1)}, b=${curveB.toFixed(1)}) + nearest-neighbor interpolation from ${projections.length} majors (Katowice 2014 - Austin 2025). CS2-era majors weighted 60-100%, pre-2019 at 5-10%. Sticker prices follow logarithmic growth post-sale due to consumable supply burn. Updated every 15 minutes. Past performance does not guarantee future results.</p>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Blended model: weighted logarithmic curve fit (a=${curveA.toFixed(1)}, b=${curveB.toFixed(1)}) + nearest-neighbor interpolation from ${projections.length} majors. All ages measured from sale end date, not event release. CS2-era majors weighted 60-100%, pre-2019 at 5-10%. Updated every 15 minutes. Past performance does not guarantee future results.</p>
 
 <h3>Sell Timing Recommendation</h3>
 <div class="sell-card">
   <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
     <div style="font-size:36px;font-weight:900;color:#67c1f5;">SELL @ ${bestSellStr}</div>
   </div>
-  <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Based on weighted historical major performance (CS2-era majors weighted highest), the optimal sell window for ${config.event} stickers is around <strong style="color:#fff">${peakWindow.label}</strong> after release (~${bestSellStr}), when similar-age majors averaged <span class="positive">+${peakWindow.avgROI.toFixed(0)}%</span> ROI.</p>
+  <p style="color:#aaa;font-size:13px;margin-bottom:12px;">Based on weighted historical major performance (CS2-era majors weighted highest), the optimal sell window for ${config.event} stickers is around <strong style="color:#fff">${peakWindow.label}</strong> after sale ends (~${bestSellStr}), when similar-age majors averaged <span class="positive">+${peakWindow.avgROI.toFixed(0)}%</span> ROI.</p>
   <p style="color:#888;font-size:12px;">Reference majors at that age: ${peakWindow.majorsInRange.join(', ') || 'None'}</p>
 </div>
 
@@ -4167,7 +4172,7 @@ ${timeProjections.map(t => {
 ${sellWindows.map(sw => {
   const projVal = grandCost * (1 + sw.avgROI / 100);
   const perSticker = projVal / userTotal;
-  const sellDate = new Date(new Date("2025-09-15").getTime() + sw.months * 30.44 * 86400000);
+  const sellDate = new Date(SALE_END.getTime() + sw.months * 30.44 * 86400000);
   const sellStr = sellDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   const sigColor = sw.recommendation === 'STRONG SELL' ? '#22c55e' : sw.recommendation === 'CONSIDER SELLING' ? '#f59e0b' : sw.recommendation === 'HOLD FOR MORE' ? '#67c1f5' : sw.recommendation === 'TOO EARLY' ? '#ef4444' : '#888';
   const isPeak = sw === peakWindow;
@@ -4685,7 +4690,7 @@ const predLabels = ['Now', ${timeProjections.map(t => "'" + t.label + "'").join(
 const predValues = [${grandValue.toFixed(2)}, ${timeProjections.map(t => t.projectedValue.toFixed(2)).join(',')}];
 const predActual = ${JSON.stringify(actualDataForChart)};
 const predBestCase = [${grandValue.toFixed(2)}, ${timeProjections.map((t) => {
-  const ratio = t.months / bestModernMajor.monthsOld;
+  const ratio = t.months / bestModernMajor.monthsPostSale;
   return (grandCost * (1 + bestModernMajor.roi / 100 * ratio)).toFixed(2);
 }).join(',')}];
 const pCtx = document.getElementById('predictionChart').getContext('2d');
