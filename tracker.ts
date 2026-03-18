@@ -2257,8 +2257,45 @@ async function main() {
   const maxModernROI = Math.max(...curvePoints.map(p => p.roi), 100);
   const logCurveROI = (months: number) => Math.max(-100, Math.min(maxModernROI * 3, curveA * Math.log(months + 1) + curveB));
 
+  // ── Anchored Growth Prediction Model ──
+  // The global curve (curveA/curveB) has a growth rate dominated by ancient majors with extreme ROIs
+  // (Katowice 2014 = 50,000%+, Stockholm = 500%+), making short-term predictions absurd.
+  // The intercept (curveB) is dragged down by poor performers (Paris -56%, Berlin -17%),
+  // making the curve predict very negative ROI for months 0-12.
+  //
+  // Solution: Fit a SEPARATE growth rate from only recent CS2-era majors (weight >= 0.60),
+  // then anchor the curve to pass through the current actual portfolio value.
+  // This ensures: (a) starts from reality, (b) uses only comparable growth rates, (c) smooth log growth.
+  const currentActualROI = ((grandValue - grandCost) / grandCost) * 100;
+
+  // Fit growth rate from recent CS2-era majors only (Stockholm 2021+, weight >= 0.60 after adjustment)
+  const recentCurvePoints = projections.filter(p =>
+    p.monthsPostSale > 0 && (majorWeightMap[p.name] || 0) >= 0.60
+  );
+  let rSumW = 0, rSumWX = 0, rSumWY = 0, rSumWXX = 0, rSumWXY = 0;
+  for (const p of recentCurvePoints) {
+    const x = Math.log(p.monthsPostSale + 1);
+    const y = p.roi;
+    const w = majorWeightMap[p.name] || 0.60;
+    rSumW += w; rSumWX += w * x; rSumWY += w * y;
+    rSumWXX += w * x * x; rSumWXY += w * x * y;
+  }
+  const recentCurveA = rSumW > 0
+    ? (rSumWXY - rSumWX * rSumWY / rSumW) / (rSumWXX - rSumWX * rSumWX / rSumW)
+    : 50;
+  // Floor at 30: stickers DO appreciate post-sale (even worst-case majors eventually bottom out)
+  const growthRate = Math.max(30, recentCurveA);
+  // Anchor intercept so curve passes through (postSaleAgeMonths, currentActualROI)
+  const anchoredB = currentActualROI - growthRate * Math.log(postSaleAgeMonths + 1);
+
+  // Prediction function: log growth anchored to current reality
+  const anchoredCurveROI = (months: number): number => {
+    const roi = growthRate * Math.log(months + 1) + anchoredB;
+    return Math.max(-100, roi);
+  };
+  const smoothPrediction = anchoredCurveROI;
+
   // 2-week intervals for first year, monthly for year 2, then quarterly/yearly out to 12 years
-  // Capped at 144 months (12 years) — oldest major (Katowice 2014) is ~144 months old
   const timePoints = [
     0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12,
     13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
@@ -2266,43 +2303,9 @@ async function main() {
   ];
   interface TimeProjection { months: number; label: string; avgROI: number; projectedValue: number; projectedPerSticker: number; actualValue?: number; actualROI?: number; method?: string; }
   const timeProjections: TimeProjection[] = timePoints.map(targetMonths => {
-    // Step 2: Nearest-neighbor interpolation using months-post-sale
-    const searchRadius = targetMonths < 6 ? Math.max(3, targetMonths * 2) : Math.max(12, targetMonths * 0.5);
-    const nearby = projections.filter(p => {
-      const dist = Math.abs(p.monthsPostSale - targetMonths);
-      if (targetMonths < 6 && p.monthsPostSale > 24) return false;
-      if (targetMonths < 12 && (majorWeightMap[p.name] || 0.10) < 0.10) return false;
-      return dist <= searchRadius;
-    });
-    let nnROI: number;
-    if (nearby.length > 0) {
-      let totalWeight = 0, weightedROI = 0;
-      for (const p of nearby) {
-        const distW = 1 / (1 + Math.abs(p.monthsPostSale - targetMonths));
-        const w = distW * (majorWeightMap[p.name] || 0.10);
-        weightedROI += p.roi * w;
-        totalWeight += w;
-      }
-      nnROI = weightedROI / totalWeight;
-    } else {
-      const modern = projections.filter(p => (majorWeightMap[p.name] || 0.10) >= 0.10);
-      const sorted = [...(modern.length > 0 ? modern : projections)].sort((a, b) => Math.abs(a.monthsPostSale - targetMonths) - Math.abs(b.monthsPostSale - targetMonths));
-      nnROI = sorted[0].roi;
-    }
-
-    // Step 3: Logarithmic curve prediction
-    const lcROI = logCurveROI(targetMonths);
-
-    // Step 4: Blend — curve fit gets more weight for longer projections (better extrapolation)
-    // Short-term (0-6mo): 70% NN / 30% curve (NN captures post-sale dynamics better)
-    // Medium-term (6-36mo): 50/50 blend
-    // Long-term (36mo+): 30% NN / 70% curve (curve extrapolates more smoothly)
-    let curveWeight: number;
-    if (targetMonths <= 6) curveWeight = 0.3;
-    else if (targetMonths <= 36) curveWeight = 0.3 + 0.4 * ((targetMonths - 6) / 30);
-    else curveWeight = 0.7;
-    const avgROI = nnROI * (1 - curveWeight) + lcROI * curveWeight;
-
+    // Pure smooth prediction: transitions from actual current value to fitted curve
+    // No NN blend — NN creates discrete jumps when sparse neighbors enter/exit search radius
+    const avgROI = smoothPrediction(targetMonths);
     const projValue = grandCost * (1 + avgROI / 100);
     return {
       months: targetMonths,
@@ -2310,7 +2313,6 @@ async function main() {
       avgROI,
       projectedValue: projValue,
       projectedPerSticker: projValue / userTotal,
-      method: `${Math.round(curveWeight * 100)}% curve`,
     };
   });
 
@@ -2377,15 +2379,10 @@ async function main() {
     }
   }
 
-  // Find estimated break-even month (post-sale)
+  // Find estimated break-even month (post-sale) using anchored curve
   let breakEvenMonths = 0;
   for (let m = 1; m <= 120; m++) {
-    const nearby = projections.filter(p => Math.abs(p.monthsPostSale - m) <= 12);
-    if (nearby.length > 0) {
-      let tw = 0, wr = 0;
-      for (const p of nearby) { const w = (1 / (1 + Math.abs(p.monthsPostSale - m))) * (majorWeightMap[p.name] || 0.10); wr += p.roi * w; tw += w; }
-      if (wr / tw >= 0) { breakEvenMonths = m; break; }
-    }
+    if (anchoredCurveROI(m) >= 0) { breakEvenMonths = m; break; }
   }
 
   const bestMajor = projections.find(p => p.bestMajor)!;
@@ -2540,6 +2537,10 @@ async function main() {
         }
         sw.avgROI = wr / tw;
         sw.majorsInRange = nearby.map(p => p.name);
+      } else {
+        // No neighbors — use anchored curve prediction
+        sw.avgROI = anchoredCurveROI(sw.months);
+        sw.majorsInRange = ['Model estimate'];
       }
     }
     if (sw.avgROI > 500) sw.recommendation = 'STRONG SELL';
@@ -4128,7 +4129,7 @@ ${['Normal', 'Embroidered', 'Holo', 'Gold'].map(q => {
 </div>
 
 <h4 style="color:#fff;font-size:14px;margin:20px 0 12px;">Full Prediction Timeline (${timeProjections.length} intervals)</h4>
-<p style="color:#888;font-size:12px;margin-bottom:8px;">Timeline starts from sale end (${config.saleEndDate || 'Mar 15, 2026'}). Predictions use a blended model: logarithmic growth curve fitted to ${curvePoints.length} historical majors (post-sale ages), blended with nearest-neighbor interpolation. Green rows have actual data.</p>
+<p style="color:#888;font-size:12px;margin-bottom:8px;">Timeline starts from sale end (${config.saleEndDate || 'Mar 15, 2026'}). Predictions use a logarithmic growth curve fitted to ${recentCurvePoints.length} recent CS2-era majors (post-sale ages), anchored to current portfolio value. Green rows have actual data.</p>
 <div class="scroll-table" style="max-height:600px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table class="history-table" style="max-width: 900px;">
 <thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Per Sticker</th><th>Actual Value</th><th>Actual ROI</th><th>Accuracy</th></tr></thead>
@@ -4153,7 +4154,7 @@ ${timeProjections.map(t => {
 </tbody>
 </table>
 </div>
-<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Blended model: weighted logarithmic curve fit (a=${curveA.toFixed(1)}, b=${curveB.toFixed(1)}) + nearest-neighbor interpolation from ${projections.length} majors. All ages measured from sale end date, not event release. CS2-era majors weighted 60-100%, pre-2019 at 5-10%. Updated every 15 minutes. Past performance does not guarantee future results.</p>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Anchored growth model: logarithmic curve (growth rate=${growthRate.toFixed(1)}) fitted to ${recentCurvePoints.length} recent CS2-era majors, anchored to current portfolio value. All ages measured from sale end date. CS2-era majors (2021+) weighted 60-100%. Updated every 15 minutes. Past performance does not guarantee future results.</p>
 
 <h3>Sell Timing Recommendation</h3>
 <div class="sell-card">
