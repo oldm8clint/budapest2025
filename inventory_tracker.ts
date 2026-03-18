@@ -19,7 +19,7 @@ interface TrackerConfig {
   githubPagesUrl: string;
   portfolio?: {
     costBasis?: Record<string, { qty: number; costEach: number; currency: string }>;
-    manualItems?: { market_hash_name: string; name?: string; qty: number; category?: string; note?: string }[];
+    manualItems?: { market_hash_name: string; name?: string; qty: number; category?: string; note?: string; skinport?: { market_hash_name: string; version: string }; icon_url?: string }[];
   };
 }
 
@@ -342,6 +342,43 @@ async function fetchPrices(items: InventoryItem[]): Promise<Record<string, { pri
   return result;
 }
 
+// ── Skinport Pricing (for Doppler variants, etc.) ──────────────────────
+// Skinport API separates Doppler phases via a "version" field (Ruby, Sapphire, etc.)
+// while Steam Market lumps them all under one market_hash_name.
+async function fetchSkinportPrices(manualItems: any[]): Promise<Record<string, { price: number; listings: number; itemPage?: string }>> {
+  const result: Record<string, { price: number; listings: number; itemPage?: string }> = {};
+  const skinportItems = manualItems.filter((mi: any) => mi.skinport);
+  if (skinportItems.length === 0) return result;
+
+  console.log(`  Fetching ${skinportItems.length} Skinport-priced items...`);
+  try {
+    const res = await fetch('https://api.skinport.com/v1/items?app_id=730&currency=AUD', {
+      headers: { 'Accept-Encoding': 'br, gzip, deflate' },
+    });
+    if (!res.ok) {
+      console.log(`  Skinport API error: HTTP ${res.status}`);
+      return result;
+    }
+    const data = await res.json() as any[];
+    for (const mi of skinportItems) {
+      const sp = mi.skinport;
+      const match = data.find((item: any) =>
+        item.market_hash_name === sp.market_hash_name && item.version === sp.version
+      );
+      if (match) {
+        const price = match.min_price || match.suggested_price || 0;
+        result[mi.market_hash_name] = { price, listings: match.quantity || 0, itemPage: match.item_page };
+        console.log(`  ✓ ${mi.name || mi.market_hash_name}: ${config.currencySymbol}${price.toFixed(2)} (${match.quantity} listings on Skinport)`);
+      } else {
+        console.log(`  ✗ ${mi.name || mi.market_hash_name}: not found on Skinport (${sp.market_hash_name} / ${sp.version})`);
+      }
+    }
+  } catch (e: any) {
+    console.log(`  Skinport API error: ${e.message}`);
+  }
+  return result;
+}
+
 // ── Budapest Stickers — read aggregate from sticker_price_history.json ──
 // Instead of fetching hundreds of sticker prices individually, we read the
 // latest total value/cost from tracker.ts's price history (it already does the work)
@@ -486,6 +523,12 @@ async function main() {
   console.log("\n3. Fetching market prices...");
   const prices = await fetchPrices(inventory);
 
+  // 3b. Fetch Skinport prices for Doppler variants (Ruby, Sapphire, etc.)
+  const skinportPrices = await fetchSkinportPrices(manualItems);
+  for (const [key, val] of Object.entries(skinportPrices)) {
+    prices[key] = val; // Override Steam price with Skinport version-specific price
+  }
+
   // 4. Exchange rates
   console.log("\n4. Fetching exchange rates...");
   const fx = await fetchExchangeRates();
@@ -581,7 +624,8 @@ async function main() {
       totalCost,
       profitLoss,
       roi,
-      marketUrl: item.marketable ? `https://steamcommunity.com/market/listings/730/${encodeURIComponent(item.market_hash_name)}` : '',
+      marketUrl: skinportPrices[item.market_hash_name]?.itemPage
+        || (item.marketable ? `https://steamcommunity.com/market/listings/730/${encodeURIComponent(item.market_hash_name)}` : ''),
       listings: priceData?.listings || 0,
     });
   }
@@ -872,7 +916,8 @@ async function main() {
 
   /* Full table */
   table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
-  thead { position: sticky; top: 48px; z-index: 50; }
+  thead { position: sticky; top: 88px; z-index: 50; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+  .filter-bar { position: sticky; top: 48px; z-index: 51; background: #1b2838; padding-top: 8px; padding-bottom: 8px; }
   h3[id] { scroll-margin-top: 60px; }
   table { scroll-margin-top: 60px; }
   th { background: #1a3a52; box-shadow: 0 1px 0 #0e1a26; color: #8f98a0; padding: 8px 8px; text-align: left; border-bottom: 1px solid #0e1a26; cursor: pointer; user-select: none; white-space: nowrap; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; transition: color 0.2s; }
