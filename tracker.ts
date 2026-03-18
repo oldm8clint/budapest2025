@@ -2263,14 +2263,14 @@ async function main() {
   // The intercept (curveB) is dragged down by poor performers (Paris -56%, Berlin -17%),
   // making the curve predict very negative ROI for months 0-12.
   //
-  // Solution: Fit a SEPARATE growth rate from only recent CS2-era majors (weight >= 0.60),
+  // Solution: Fit a SEPARATE growth rate from ALL majors (weighted by relevance),
   // then anchor the curve to pass through the current actual portfolio value.
-  // This ensures: (a) starts from reality, (b) uses only comparable growth rates, (c) smooth log growth.
+  // This ensures: (a) starts from reality, (b) uses all available data weighted by relevance, (c) smooth log growth.
   const currentActualROI = ((grandValue - grandCost) / grandCost) * 100;
 
-  // Fit growth rate from recent CS2-era majors only (Stockholm 2021+, weight >= 0.60 after adjustment)
+  // Fit growth rate from all majors with post-sale data, weighted by majorWeightMap
   const recentCurvePoints = projections.filter(p =>
-    p.monthsPostSale > 0 && (majorWeightMap[p.name] || 0) >= 0.60
+    p.monthsPostSale > 0 && (majorWeightMap[p.name] || 0) > 0
   );
   let rSumW = 0, rSumWX = 0, rSumWY = 0, rSumWXX = 0, rSumWXY = 0;
   for (const p of recentCurvePoints) {
@@ -4129,7 +4129,7 @@ ${['Normal', 'Embroidered', 'Holo', 'Gold'].map(q => {
 </div>
 
 <h4 style="color:#fff;font-size:14px;margin:20px 0 12px;">Full Prediction Timeline (${timeProjections.length} intervals)</h4>
-<p style="color:#888;font-size:12px;margin-bottom:8px;">Timeline starts from sale end (${config.saleEndDate || 'Mar 15, 2026'}). Predictions use a logarithmic growth curve fitted to ${recentCurvePoints.length} recent CS2-era majors (post-sale ages), anchored to current portfolio value. Green rows have actual data.</p>
+<p style="color:#888;font-size:12px;margin-bottom:8px;">Timeline starts from sale end (${config.saleEndDate || 'Mar 15, 2026'}). Predictions use a logarithmic growth curve fitted to all ${recentCurvePoints.length} historical majors (weighted by relevance, post-sale ages), anchored to current portfolio value. Green rows have actual data.</p>
 <div class="scroll-table" style="max-height:600px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2a475e transparent;">
 <table class="history-table" style="max-width: 900px;">
 <thead><tr><th>Timeline</th><th>Projected Value</th><th>Est. ROI</th><th>Per Sticker</th><th>Actual Value</th><th>Actual ROI</th><th>Accuracy</th></tr></thead>
@@ -4154,7 +4154,7 @@ ${timeProjections.map(t => {
 </tbody>
 </table>
 </div>
-<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Anchored growth model: logarithmic curve (growth rate=${growthRate.toFixed(1)}) fitted to ${recentCurvePoints.length} recent CS2-era majors, anchored to current portfolio value. All ages measured from sale end date. CS2-era majors (2021+) weighted 60-100%. Updated every 15 minutes. Past performance does not guarantee future results.</p>
+<p style="color:#555;font-size:11px;margin-top:8px;font-style:italic;">Anchored growth model: logarithmic curve (growth rate=${growthRate.toFixed(1)}) fitted to all ${recentCurvePoints.length} historical majors (weighted by relevance), anchored to current portfolio value. All ages measured from sale end date. Updated every 15 minutes. Past performance does not guarantee future results.</p>
 
 <h3>Sell Timing Recommendation</h3>
 <div class="sell-card">
