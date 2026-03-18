@@ -916,8 +916,7 @@ async function main() {
 
   /* Full table */
   table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
-  thead { position: sticky; top: 88px; z-index: 50; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
-  .filter-bar { position: sticky; top: 48px; z-index: 51; background: #1b2838; padding-top: 8px; padding-bottom: 8px; }
+  thead { position: sticky; top: 48px; z-index: 50; }
   h3[id] { scroll-margin-top: 60px; }
   table { scroll-margin-top: 60px; }
   th { background: #1a3a52; box-shadow: 0 1px 0 #0e1a26; color: #8f98a0; padding: 8px 8px; text-align: left; border-bottom: 1px solid #0e1a26; cursor: pointer; user-select: none; white-space: nowrap; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; transition: color 0.2s; }
