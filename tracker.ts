@@ -5512,16 +5512,22 @@ function downloadCSV() {
       console.log('Discord: Sent Skinport market data');
     }
 
-    // 7: Major Tracking Report (when data exists)
+    // 7: Major Tracking Report (when data exists) — include ALL tracked majors
     if (majorPriceLastUpdated) {
       const latestMajorData = majorPriceHistory.entries[majorPriceHistory.entries.length - 1];
-      const recentMajorNames = ['Austin 2025', 'Shanghai 2024', 'Copenhagen 2024'];
-      const majorFields = recentMajorNames.map(name => {
+      // Get all majors from historicalMajors that have live data, ordered by recency
+      const allTrackedMajorNames = historicalMajors
+        .filter(m => latestMajorData.averages[m.name] && latestMajorData.averages[m.name].stickerCount >= 1)
+        .sort((a, b) => a.monthsOld - b.monthsOld) // newest first
+        .map(m => m.name);
+      const majorFields = allTrackedMajorNames.map(name => {
         const a = latestMajorData.averages[name];
         if (!a) return null;
+        const mid = a.avgMidTier > 0 ? ` | Mid: A$${a.avgMidTier.toFixed(2)}` : '';
+        const gold = a.avgGold > 0 ? ` | Gold: A$${a.avgGold.toFixed(2)}` : '';
         return {
-          name: `\u{1F3AE} ${name}`,
-          value: `Normal: A$${a.avgNormal.toFixed(2)} | Holo: A$${a.avgHolo.toFixed(2)} | Gold: A$${a.avgGold.toFixed(2)} | Vol: ${a.totalVolume}`,
+          name: `\u{1F3AE} ${name} (${a.stickerCount} stickers)`,
+          value: `Normal: A$${a.avgNormal.toFixed(2)}${mid} | Holo: A$${a.avgHolo.toFixed(2)}${gold} | Vol: ${a.totalVolume}`,
           inline: false,
         };
       }).filter(Boolean) as { name: string; value: string; inline: boolean }[];
@@ -5530,7 +5536,7 @@ function downloadCSV() {
         await sendDiscord(DISCORD_WEBHOOKS.majorTracking, [{
           title: '\u{1F4C8} Previous Major Price Tracking',
           color: 0xf59e0b,
-          description: `Live prices from ${recentMajorNames.length} most recent majors (updated ${majorPriceLastUpdated}). These feed directly into ${config.event} predictions.`,
+          description: `Live prices from ${allTrackedMajorNames.length} tracked majors (updated ${majorPriceLastUpdated}). These feed directly into ${config.event} predictions.`,
           fields: [
             ...majorFields,
             { name: 'Dashboard', value: `[View Live Dashboard](${config.githubPagesUrl || 'https://oldm8clint.github.io/budapest2025/'})`, inline: false },
@@ -5538,7 +5544,7 @@ function downloadCSV() {
           footer: discordFooter(),
           timestamp: new Date().toISOString(),
         }]);
-        console.log('Discord: Sent major tracking update');
+        console.log(`Discord: Sent major tracking update (${allTrackedMajorNames.length} majors)`);
       }
     }
 
