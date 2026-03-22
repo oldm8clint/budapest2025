@@ -10327,24 +10327,24 @@
     },
     {
       "date": "2026-03-22-21",
-      "totalValue": 2449.76,
+      "totalValue": 2449.9800000000005,
       "totalItems": 52,
       "categoryValues": {
         "Skins": {
           "count": 9,
-          "value": 1837.9499999999998
+          "value": 1837.9599999999998
         },
         "Cases": {
           "count": 20,
-          "value": 335.96999999999997
+          "value": 336.57
         },
         "Sticker Investments": {
           "count": 1,
-          "value": 274.36000000000075
+          "value": 274.05000000000075
         },
         "Stickers": {
           "count": 1,
-          "value": 1.04
+          "value": 0.96
         },
         "Graffiti": {
           "count": 15,
@@ -10363,11 +10363,11 @@
         "★ Specialist Gloves | Field Agent (Minimal Wear)": 819.78,
         "M4A4 | X-Ray (Factory New)": 538.71,
         "★ Navaja Knife | Doppler Ruby (Factory New)": 479.04,
-        "Operation Breakout Weapon Case": 17.65,
-        "__budapest_sticker_lot__": 274.36000000000075,
-        "Sticker | Co Co Co": 1.04,
-        "Revolution Case": 0.62,
-        "SCAR-20 | Carbon Fiber (Factory New)": 0.25,
+        "Operation Breakout Weapon Case": 17.68,
+        "__budapest_sticker_lot__": 274.05000000000075,
+        "Sticker | Co Co Co": 0.96,
+        "Revolution Case": 0.65,
+        "SCAR-20 | Carbon Fiber (Factory New)": 0.26,
         "M4A4 | Aeolian Dark (Battle-Scarred)": 0.09,
         "Dual Berettas | BorDeux (Field-Tested)": 0.04,
         "Sealed Graffiti | GTG (Cash Green)": 0.04,
