@@ -9796,24 +9796,24 @@
     },
     {
       "date": "2026-03-22-11",
-      "totalValue": 2443.8700000000003,
+      "totalValue": 2420.42,
       "totalItems": 52,
       "categoryValues": {
         "Skins": {
           "count": 9,
-          "value": 1837.9599999999998
+          "value": 1837.9099999999999
         },
         "Cases": {
           "count": 20,
-          "value": 329.68
+          "value": 308.96
         },
         "Sticker Investments": {
           "count": 1,
-          "value": 274.78000000000077
+          "value": 272.12000000000074
         },
         "Stickers": {
           "count": 1,
-          "value": 1.01
+          "value": 0.99
         },
         "Graffiti": {
           "count": 15,
@@ -9832,11 +9832,11 @@
         "★ Specialist Gloves | Field Agent (Minimal Wear)": 819.78,
         "M4A4 | X-Ray (Factory New)": 538.71,
         "★ Navaja Knife | Doppler Ruby (Factory New)": 479.04,
-        "Operation Breakout Weapon Case": 17.32,
-        "__budapest_sticker_lot__": 274.78000000000077,
-        "Sticker | Co Co Co": 1.01,
-        "Revolution Case": 0.6,
-        "SCAR-20 | Carbon Fiber (Factory New)": 0.28,
+        "Operation Breakout Weapon Case": 16.23,
+        "__budapest_sticker_lot__": 272.12000000000074,
+        "Sticker | Co Co Co": 0.99,
+        "Revolution Case": 0.59,
+        "SCAR-20 | Carbon Fiber (Factory New)": 0.23,
         "M4A4 | Aeolian Dark (Battle-Scarred)": 0.08,
         "Sealed Graffiti | GTG (Cash Green)": 0.04,
         "Sealed Graffiti | Eat It (Violent Violet)": 0.04,
