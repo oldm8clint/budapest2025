@@ -9560,24 +9560,24 @@
     },
     {
       "date": "2026-03-22-07",
-      "totalValue": 2447.1499999999996,
+      "totalValue": 2437.29,
       "totalItems": 52,
       "categoryValues": {
         "Skins": {
           "count": 9,
-          "value": 1823.7699999999998
+          "value": 1823.7599999999998
         },
         "Cases": {
           "count": 20,
-          "value": 340.90000000000003
+          "value": 334.25
         },
         "Sticker Investments": {
           "count": 1,
-          "value": 281.01000000000045
+          "value": 277.8000000000006
         },
         "Stickers": {
           "count": 1,
-          "value": 1.03
+          "value": 1.04
         },
         "Graffiti": {
           "count": 15,
@@ -9596,17 +9596,17 @@
         "★ Specialist Gloves | Field Agent (Minimal Wear)": 799.87,
         "M4A4 | X-Ray (Factory New)": 544.41,
         "★ Navaja Knife | Doppler Ruby (Factory New)": 479.04,
-        "Operation Breakout Weapon Case": 17.91,
-        "__budapest_sticker_lot__": 281.01000000000045,
-        "Sticker | Co Co Co": 1.03,
+        "Operation Breakout Weapon Case": 17.56,
+        "__budapest_sticker_lot__": 277.8000000000006,
+        "Sticker | Co Co Co": 1.04,
         "Revolution Case": 0.61,
-        "SCAR-20 | Carbon Fiber (Factory New)": 0.27,
-        "M4A4 | Aeolian Dark (Battle-Scarred)": 0.11,
-        "Dual Berettas | BorDeux (Field-Tested)": 0.04,
+        "SCAR-20 | Carbon Fiber (Factory New)": 0.29,
+        "M4A4 | Aeolian Dark (Battle-Scarred)": 0.08,
         "Sealed Graffiti | GTG (Cash Green)": 0.04,
         "Sealed Graffiti | Eat It (Violent Violet)": 0.04,
         "Sealed Graffiti | Mr. Teeth (Tiger Orange)": 0.04,
         "Sealed Graffiti | GTG (Monarch Blue)": 0.04,
+        "SG 553 | Waves Perforated (Well-Worn)": 0.04,
         "Sealed Graffiti | Double (Jungle Green)": 0.04,
         "Sealed Graffiti | Toasted (Princess Pink)": 0.04,
         "Sealed Graffiti | Still Happy (Battle Green)": 0.04,
@@ -9614,7 +9614,7 @@
         "Sealed Graffiti | Sheriff (Dust Brown)": 0.04,
         "Sealed Graffiti | Toasted (Blood Red)": 0.04,
         "Sealed Graffiti | Keep the Change (Frog Green)": 0.04,
-        "SG 553 | Waves Perforated (Well-Worn)": 0.03
+        "Dual Berettas | BorDeux (Field-Tested)": 0.03
       }
     }
   ]
