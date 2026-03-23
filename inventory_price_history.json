@@ -11501,24 +11501,24 @@
     },
     {
       "date": "2026-03-23-19",
-      "totalValue": 2825.3199999999997,
+      "totalValue": 2825.0100000000007,
       "totalItems": 76,
       "categoryValues": {
         "Skins": {
           "count": 31,
-          "value": 2226.2400000000007
+          "value": 2225.78
         },
         "Cases": {
           "count": 21,
-          "value": 336.44
+          "value": 335.83000000000004
         },
         "Sticker Investments": {
           "count": 1,
-          "value": 261.2300000000006
+          "value": 261.9700000000006
         },
         "Stickers": {
           "count": 1,
-          "value": 0.97
+          "value": 0.99
         },
         "Graffiti": {
           "count": 15,
@@ -11541,20 +11541,20 @@
         "★ Specialist Gloves | Field Agent (Minimal Wear)": 816.61,
         "M4A4 | X-Ray (Factory New)": 538.71,
         "★ Navaja Knife | Doppler Ruby (Factory New)": 481.72,
-        "Operation Breakout Weapon Case": 16.79,
-        "__budapest_sticker_lot__": 261.2300000000006,
+        "Operation Breakout Weapon Case": 16.76,
+        "__budapest_sticker_lot__": 261.9700000000006,
         "Desert Eagle | Printstream (Factory New)": 169.94,
         "★ Huntsman Knife | Bright Water (Minimal Wear)": 148.38,
-        "Glock-18 | Water Elemental (Minimal Wear)": 35.07,
-        "StatTrak™ MP7 | Abyssal Apparition (Field-Tested)": 10.54,
-        "StatTrak™ MAC-10 | Heat (Field-Tested)": 9.8,
+        "Glock-18 | Water Elemental (Minimal Wear)": 34.96,
+        "StatTrak™ MP7 | Abyssal Apparition (Field-Tested)": 10.28,
+        "StatTrak™ MAC-10 | Heat (Field-Tested)": 9.77,
         "StatTrak™ Galil AR | Crimson Tsunami (Field-Tested)": 7.5,
-        "Souvenir USP-S | Check Engine (Field-Tested)": 6.55,
-        "Sticker | Co Co Co": 0.97,
-        "Revolution Case": 0.64,
-        "SCAR-20 | Carbon Fiber (Factory New)": 0.28,
+        "Souvenir USP-S | Check Engine (Field-Tested)": 6.5,
+        "Sticker | Co Co Co": 0.99,
+        "Revolution Case": 0.63,
+        "SCAR-20 | Carbon Fiber (Factory New)": 0.26,
         "Souvenir Five-SeveN | Coolant (Minimal Wear)": 0.25,
-        "Souvenir AUG | Sweeper (Well-Worn)": 0.17,
+        "Souvenir AUG | Sweeper (Well-Worn)": 0.18,
         "Souvenir PP-Bizon | Facility Sketch (Field-Tested)": 0.06,
         "M4A4 | Aeolian Dark (Battle-Scarred)": 0.08,
         "Souvenir UMP-45 | Mudder (Minimal Wear)": 0.05,
