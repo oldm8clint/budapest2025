@@ -19844,24 +19844,24 @@
     },
     {
       "date": "2026-03-28-21",
-      "totalValue": 2998.109999999999,
+      "totalValue": 2980.7399999999993,
       "totalItems": 86,
       "categoryValues": {
         "Skins": {
           "count": 34,
-          "value": 2315.839999999999
+          "value": 2296.4899999999993
         },
         "Cases": {
           "count": 22,
-          "value": 387.27000000000004
+          "value": 387.76000000000005
         },
         "Sticker Investments": {
           "count": 1,
-          "value": 289.4800000000001
+          "value": 290.9900000000001
         },
         "Charm": {
           "count": 5,
-          "value": 3.89
+          "value": 3.8800000000000003
         },
         "Stickers": {
           "count": 2,
@@ -19869,7 +19869,7 @@
         },
         "Graffiti": {
           "count": 15,
-          "value": 0.4499999999999999
+          "value": 0.43999999999999995
         },
         "C4": {
           "count": 1,
@@ -19886,34 +19886,33 @@
       },
       "itemPrices": {
         "★ Specialist Gloves | Field Agent (Minimal Wear)": 827.43,
-        "M4A4 | X-Ray (Factory New)": 543.29,
+        "M4A4 | X-Ray (Factory New)": 524.13,
         "★ Navaja Knife | Doppler Ruby (Factory New)": 483.01,
-        "Operation Breakout Weapon Case": 18.41,
-        "__budapest_sticker_lot__": 289.4800000000001,
+        "Operation Breakout Weapon Case": 18.43,
+        "__budapest_sticker_lot__": 290.9900000000001,
         "Desert Eagle | Printstream (Factory New)": 166.61,
         "★ Huntsman Knife | Bright Water (Minimal Wear)": 151.42,
         "Glock-18 | Water Elemental (Minimal Wear)": 38.5,
         "Tec-9 | Decimator (Field-Tested)": 33.78,
-        "StatTrak™ AK-47 | Searing Rage (Battle-Scarred)": 20.06,
+        "StatTrak™ AK-47 | Searing Rage (Battle-Scarred)": 19.8,
         "StatTrak™ MP7 | Abyssal Apparition (Field-Tested)": 12.99,
         "StatTrak™ MAC-10 | Heat (Field-Tested)": 11.41,
         "MAC-10 | Disco Tech (Field-Tested)": 10.93,
         "StatTrak™ Galil AR | Crimson Tsunami (Field-Tested)": 7.79,
-        "Souvenir USP-S | Check Engine (Field-Tested)": 6.9,
-        "Charm | Bomb Tag": 1.55,
+        "Souvenir USP-S | Check Engine (Field-Tested)": 6.99,
+        "Charm | Bomb Tag": 1.52,
         "Sticker | Co Co Co": 1.05,
-        "Revolution Case": 0.66,
-        "Charm | Splatter Cat": 0.36,
+        "Revolution Case": 0.73,
+        "Charm | Splatter Cat": 0.37,
         "Souvenir Five-SeveN | Coolant (Minimal Wear)": 0.35,
-        "SCAR-20 | Carbon Fiber (Factory New)": 0.35,
+        "SCAR-20 | Carbon Fiber (Factory New)": 0.34,
+        "Charm | Fluffy": 0.24,
         "Charm | Gritty": 0.23,
         "Souvenir AUG | Sweeper (Well-Worn)": 0.23,
-        "Charm | Fluffy": 0.2,
         "Souvenir PP-Bizon | Facility Sketch (Field-Tested)": 0.08,
         "Sticker | Sent With Love": 0.13,
-        "M4A4 | Aeolian Dark (Battle-Scarred)": 0.1,
+        "M4A4 | Aeolian Dark (Battle-Scarred)": 0.09,
         "Souvenir UMP-45 | Mudder (Minimal Wear)": 0.05,
-        "Sealed Graffiti | Still Happy (Battle Green)": 0.05,
         "Dual Berettas | BorDeux (Field-Tested)": 0.04,
         "Souvenir MAG-7 | Rust Coat (Field-Tested)": 0.04,
         "P250 | Boreal Forest (Field-Tested)": 0.04,
@@ -19930,6 +19929,7 @@
         "SG 553 | Waves Perforated (Well-Worn)": 0.04,
         "Sealed Graffiti | Double (Jungle Green)": 0.04,
         "Sealed Graffiti | Toasted (Princess Pink)": 0.04,
+        "Sealed Graffiti | Still Happy (Battle Green)": 0.04,
         "Sealed Graffiti | GGWP (Bazooka Pink)": 0.04,
         "Sealed Graffiti | Sheriff (Dust Brown)": 0.04,
         "Sealed Graffiti | Toasted (Blood Red)": 0.04,
