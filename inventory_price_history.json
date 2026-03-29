@@ -21011,6 +21011,107 @@
         "Sealed Graffiti | Toasted (Blood Red)": 0.04,
         "Sealed Graffiti | Keep the Change (Frog Green)": 0.04
       }
+    },
+    {
+      "date": "2026-03-29-14",
+      "totalValue": 3173.5599999999995,
+      "totalItems": 93,
+      "categoryValues": {
+        "Skins": {
+          "count": 36,
+          "value": 2490.3699999999994
+        },
+        "Cases": {
+          "count": 23,
+          "value": 373.25000000000006
+        },
+        "Sticker Investments": {
+          "count": 1,
+          "value": 288.3500000000003
+        },
+        "Charm": {
+          "count": 7,
+          "value": 13.31
+        },
+        "Music Kits": {
+          "count": 2,
+          "value": 6.63
+        },
+        "Stickers": {
+          "count": 3,
+          "value": 1.2000000000000002
+        },
+        "Graffiti": {
+          "count": 15,
+          "value": 0.4499999999999999
+        },
+        "C4": {
+          "count": 1,
+          "value": 0
+        },
+        "Collectibles": {
+          "count": 5,
+          "value": 0
+        }
+      },
+      "itemPrices": {
+        "★ Specialist Gloves | Field Agent (Minimal Wear)": 828,
+        "M4A4 | X-Ray (Factory New)": 543.29,
+        "★ Navaja Knife | Doppler Ruby (Factory New)": 483.01,
+        "Operation Breakout Weapon Case": 17.6,
+        "__budapest_sticker_lot__": 288.3500000000003,
+        "★ Navaja Knife | Doppler (Factory New)": 171.18,
+        "Desert Eagle | Printstream (Factory New)": 163.35,
+        "★ Huntsman Knife | Bright Water (Minimal Wear)": 155.74,
+        "Glock-18 | Water Elemental (Minimal Wear)": 37.51,
+        "Tec-9 | Decimator (Field-Tested)": 35.38,
+        "StatTrak™ AK-47 | Searing Rage (Battle-Scarred)": 20.49,
+        "MAC-10 | Disco Tech (Field-Tested)": 11.69,
+        "StatTrak™ MP7 | Abyssal Apparition (Field-Tested)": 11.64,
+        "StatTrak™ MAC-10 | Heat (Field-Tested)": 11.41,
+        "Charm | Eye of Ball": 9.29,
+        "Souvenir USP-S | Check Engine (Field-Tested)": 7.65,
+        "StatTrak™ Galil AR | Crimson Tsunami (Field-Tested)": 7.54,
+        "Music Kit | Scarlxrd: King, Scar": 6.63,
+        "Charm | Bomb Tag": 1.49,
+        "X-Ray P250 Package": 2.92,
+        "Sticker | Co Co Co": 0.97,
+        "Souvenir PP-Bizon | Candy Apple (Minimal Wear)": 0.76,
+        "Revolution Case": 0.73,
+        "Souvenir Five-SeveN | Coolant (Minimal Wear)": 0.35,
+        "SCAR-20 | Carbon Fiber (Factory New)": 0.35,
+        "Charm | Splatter Cat": 0.34,
+        "Souvenir AUG | Sweeper (Well-Worn)": 0.25,
+        "Charm | Fluffy": 0.24,
+        "Charm | Whittle Guy": 0.23,
+        "Charm | Gritty": 0.23,
+        "Souvenir PP-Bizon | Facility Sketch (Field-Tested)": 0.08,
+        "Sticker | Sent With Love": 0.13,
+        "Sticker | Obey SAS": 0.1,
+        "M4A4 | Aeolian Dark (Battle-Scarred)": 0.09,
+        "Souvenir UMP-45 | Mudder (Minimal Wear)": 0.05,
+        "Sealed Graffiti | Still Happy (Battle Green)": 0.05,
+        "Dual Berettas | BorDeux (Field-Tested)": 0.04,
+        "Souvenir MAG-7 | Rust Coat (Field-Tested)": 0.04,
+        "P250 | Boreal Forest (Field-Tested)": 0.04,
+        "Souvenir AUG | Sweeper (Field-Tested)": 0.04,
+        "Souvenir P250 | Facility Draft (Field-Tested)": 0.04,
+        "Souvenir Nova | Mandrel (Field-Tested)": 0.04,
+        "Souvenir MAG-7 | Rust Coat (Well-Worn)": 0.04,
+        "Souvenir MP9 | Slide (Battle-Scarred)": 0.04,
+        "Souvenir MP5-SD | Dirt Drop (Field-Tested)": 0.04,
+        "Sealed Graffiti | GTG (Cash Green)": 0.04,
+        "Sealed Graffiti | Eat It (Violent Violet)": 0.04,
+        "Sealed Graffiti | Mr. Teeth (Tiger Orange)": 0.04,
+        "Sealed Graffiti | GTG (Monarch Blue)": 0.04,
+        "SG 553 | Waves Perforated (Well-Worn)": 0.04,
+        "Sealed Graffiti | Double (Jungle Green)": 0.04,
+        "Sealed Graffiti | Toasted (Princess Pink)": 0.04,
+        "Sealed Graffiti | GGWP (Bazooka Pink)": 0.04,
+        "Sealed Graffiti | Sheriff (Dust Brown)": 0.04,
+        "Sealed Graffiti | Toasted (Blood Red)": 0.04,
+        "Sealed Graffiti | Keep the Change (Frog Green)": 0.04
+      }
     }
   ]
 }
